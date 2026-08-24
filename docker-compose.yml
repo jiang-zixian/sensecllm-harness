@@ -1,0 +1,60 @@
+services:
+  rag:
+    build: .
+    command: ["python", "-m", "sensor_rag", "serve"]
+    environment:
+      SILICONFLOW_API_KEY: ${SILICONFLOW_API_KEY:?set SILICONFLOW_API_KEY}
+      RAG_HOST: 0.0.0.0
+      RAG_PORT: 8001
+      RAG_DATA_DIR: /app/RAG_data
+      RAG_INDEX_DIR: /app/.rag_index
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./RAG_data:/app/RAG_data:ro
+      - rag_index:/app/.rag_index
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  api:
+    build: .
+    command: ["uvicorn", "sensecllm.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      CHATANYWHERE_API_KEY: ${CHATANYWHERE_API_KEY:?set CHATANYWHERE_API_KEY}
+      SENSECLLM_MODEL: ${SENSECLLM_MODEL:-deepseek-v3.2}
+      SENSECLLM_CRITIC_MODEL: ${SENSECLLM_CRITIC_MODEL:-deepseek-v3.2}
+      SENSOR_RAG_URL: http://rag:8001/v1/chat-messages
+      SENSECLLM_RUNS_DIR: /app/runs
+      SENSECLLM_MEMORY_DB: /app/runs/memory.sqlite3
+    ports:
+      - "8000:8000"
+    volumes:
+      - runs:/app/runs
+      - ./examples:/app/examples:ro
+    depends_on:
+      rag:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+volumes:
+  rag_index:
+  runs:
