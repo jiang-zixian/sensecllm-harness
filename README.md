@@ -22,6 +22,8 @@ and RAG pipeline with resumable Agent execution and historical case memory.
 See [docs/architecture.md](docs/architecture.md) for the design and roadmap.
 Measured smoke results and their limitations are documented in
 [docs/evaluation-results.md](docs/evaluation-results.md).
+Provider-key handoff is documented in
+[docs/credential-rotation.md](docs/credential-rotation.md).
 
 ## Setup
 
