@@ -5,6 +5,8 @@ import json
 import time
 from pathlib import Path
 
+import requests
+
 from sensecllm.models.chatanywhere import ChatAnywhereGateway
 from sensecllm.observability.usage import summarize_usage
 
@@ -38,7 +40,7 @@ def main() -> int:
                     "schema_valid": bool(response.get("mechanism") and response.get("evidence_policy")),
                 }
             )
-        except Exception as exc:
+        except (requests.RequestException, RuntimeError, TypeError, ValueError) as exc:
             results.append(
                 {
                     "model": model,

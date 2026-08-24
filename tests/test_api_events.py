@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 from sensecllm.api import app as api_module
 from sensecllm.config import HarnessSettings
 from sensecllm.harness.runner import HarnessRunner
@@ -40,3 +42,14 @@ def test_non_following_sse_returns_persisted_events(tmp_path: Path, monkeypatch)
     assert "text/event-stream" in str(
         asyncio.run(api_module.stream_events(state.run_id, after=0, follow=False)).media_type
     )
+
+
+def test_dashboard_metrics_and_upload_boundary() -> None:
+    client = TestClient(api_module.app)
+    assert client.get("/").status_code == 200
+    assert client.get("/metrics").status_code == 200
+    response = client.post(
+        "/v1/uploads",
+        json={"filename": "payload.exe", "content_base64": "eA=="},
+    )
+    assert response.status_code == 415

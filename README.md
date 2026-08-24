@@ -20,6 +20,8 @@ and RAG pipeline with resumable Agent execution and historical case memory.
 - Environment-only secret configuration
 
 See [docs/architecture.md](docs/architecture.md) for the design and roadmap.
+Measured smoke results and their limitations are documented in
+[docs/evaluation-results.md](docs/evaluation-results.md).
 
 ## Setup
 

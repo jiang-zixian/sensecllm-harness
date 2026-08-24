@@ -1,8 +1,8 @@
 from __future__ import annotations
 
+import os
 import time
 import uuid
-import os
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -80,7 +80,8 @@ class HarnessRunner:
                         "SENSECLLM_CONSTRAINTS_ENABLED", "true"
                     ).casefold()
                     not in {"0", "false", "no", "off"},
-                    "critic_enabled": self.settings.critic_enabled and self.profile != "no_critic",
+                    "critic_enabled": self.settings.critic_enabled
+                    and self.profile not in {"no_critic", "single_agent"},
                 },
                 "budget": {
                     "run_timeout_seconds": self.settings.run_timeout_seconds,

@@ -33,6 +33,7 @@ def evaluate_run(checkpoint_path: Path, benchmark_case: BenchmarkCase) -> dict[s
     graph = _read_json(state.data_dir / "step2_mechanism_paths.json", {})
     vulnerabilities = _read_json(state.data_dir / "step3_vulnerability_items.json", [])
     experiments = _read_json(state.data_dir / "step4_single_results.json", [])
+    constraint_traces = _read_json(state.data_dir / "step4_constraint_traces.json", [])
 
     sensor_info = step1.get("sensor_info", {}) if isinstance(step1, dict) else {}
     predicted_sensor_type = _first(
@@ -64,13 +65,13 @@ def evaluate_run(checkpoint_path: Path, benchmark_case: BenchmarkCase) -> dict[s
     predicted_fields = {
         key: str(sensor_info.get(key) or "") for key in expected.extraction_fields
     }
-    field_matches = sum(
-        normalize_label(predicted_fields[key]) == normalize_label(value)
-        for key, value in expected.extraction_fields.items()
+    field_metric = set_prf(
+        [f"{key}:{value}" for key, value in predicted_fields.items() if value],
+        [f"{key}:{value}" for key, value in expected.extraction_fields.items() if value],
     )
-    field_total = len(expected.extraction_fields)
     supported = 0
     claim_count = 0
+    accepted_mechanisms = {normalize_label(item) for item in predicted_mechanisms}
     for item in vulnerabilities if isinstance(vulnerabilities, list) else []:
         if not isinstance(item, dict):
             continue
@@ -87,7 +88,14 @@ def evaluate_run(checkpoint_path: Path, benchmark_case: BenchmarkCase) -> dict[s
                 "exploitable_parameters",
             )
         ]
-        if any(evidence_values) or (item.get("mechanism_name") and item.get("source_component")):
+        raw_mechanism = str(item.get("mechanism_name") or item.get("mechanism") or "")
+        mechanism_supported = any(
+            normalize_label(part) in accepted_mechanisms for part in raw_mechanism.split(",")
+        )
+        has_linkage = any(evidence_values) or (
+            item.get("mechanism_name") and item.get("source_component")
+        )
+        if mechanism_supported and has_linkage:
             supported += 1
     plans: list[dict[str, Any]] = []
     for item in experiments if isinstance(experiments, list) else []:
@@ -105,6 +113,18 @@ def evaluate_run(checkpoint_path: Path, benchmark_case: BenchmarkCase) -> dict[s
         )
         for plan in plans
     )
+    if isinstance(constraint_traces, list) and constraint_traces:
+        constraint_total = len(constraint_traces)
+        constraint_passed = sum(
+            not trace.get("error")
+            and int(trace.get("compiled_plan_count") or 0) > 0
+            and bool(trace.get("supporting_path_ids"))
+            for trace in constraint_traces
+            if isinstance(trace, dict)
+        )
+    else:
+        constraint_total = len(plans)
+        constraint_passed = constrained
     result = {
         "schema_version": "1.0",
         "case_id": benchmark_case.case_id,
@@ -122,17 +142,18 @@ def evaluate_run(checkpoint_path: Path, benchmark_case: BenchmarkCase) -> dict[s
             ),
             "mechanisms": set_prf(predicted_mechanisms, expected.mechanisms),
             "vulnerabilities": set_prf(predicted_vulnerabilities, expected.vulnerabilities),
-            "extraction_field_f1": round(field_matches / field_total, 6)
-            if field_total
-            else 1.0,
+            "extraction_fields": field_metric,
+            "extraction_field_f1": field_metric["f1"],
             "evidence_support_precision": round(supported / claim_count, 6)
             if claim_count
             else 1.0,
             "unsupported_claim_rate": round((claim_count - supported) / claim_count, 6)
             if claim_count
             else 0.0,
-            "experiment_constraint_pass_rate": round(constrained / len(plans), 6)
-            if plans
+            "experiment_constraint_pass_rate": round(
+                constraint_passed / constraint_total, 6
+            )
+            if constraint_total
             else 1.0,
         },
         "path_counts": {

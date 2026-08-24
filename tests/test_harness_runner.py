@@ -12,6 +12,7 @@ from sensecllm.config import HarnessSettings
 from sensecllm.harness.runner import HarnessRunner
 from sensecllm.harness.state import RunStatus, StageStatus
 from sensecllm.memory.episodic import EpisodicMemoryStore
+from sensecllm.observability.usage import record_model_usage
 
 
 class FakeLegacyAdapter:
@@ -389,3 +390,115 @@ def test_conversation_memory_round_trip(tmp_path: Path) -> None:
     messages = memory.list_messages("run-1")
     assert [item["role"] for item in messages] == ["user", "assistant"]
     assert messages[1]["citations"][0]["source"] == "report.md"
+
+
+def test_single_agent_ablation_profile_runs_same_domain_stages(tmp_path: Path) -> None:
+    source = tmp_path / "sensor.md"
+    source.write_text("sensor", encoding="utf-8")
+    runner = HarnessRunner(
+        _settings(tmp_path),
+        profile="single_agent",
+        adapter_factory=lambda root, input_path, report_path: FakeLegacyAdapter(
+            root, input_path, report_path
+        ),
+    )
+    state = runner.run(source)
+    assert state.status == RunStatus.COMPLETED
+    assert list(state.stages) == ["single_agent"]
+    assert Path(state.report_path).exists()
+
+
+def test_model_token_budget_stops_before_next_agent(tmp_path: Path) -> None:
+    source = tmp_path / "sensor.md"
+    source.write_text("sensor", encoding="utf-8")
+    settings = replace(_settings(tmp_path), max_model_tokens=1)
+    runner = HarnessRunner(
+        settings,
+        adapter_factory=lambda root, input_path, report_path: FakeLegacyAdapter(
+            root, input_path, report_path
+        ),
+    )
+    state = runner.create_run(source)
+    record_model_usage(
+        Path(state.run_dir) / "usage.jsonl",
+        provider="test",
+        model="fake-model",
+        usage={"total_tokens": 2},
+    )
+    runner._update_model_usage(state)
+    with pytest.raises(RuntimeError, match="model token budget exceeded"):
+        runner.execute(state)
+
+
+def test_critic_applies_schema_normalized_llm_revision(tmp_path: Path, monkeypatch) -> None:
+    class MismatchAdapter(FakeLegacyAdapter):
+        def run_stage(self, stage: str, model: str):
+            result = super().run_stage(stage, model)
+            if stage == "vulnerability":
+                self._write(
+                    "step3_vulnerability_items.json",
+                    [{"vulnerability_name": "bad", "mechanism_name": "resonance"}],
+                )
+            return result
+
+    monkeypatch.setenv("CHATANYWHERE_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "sensecllm.models.chatanywhere.ChatAnywhereGateway.complete_json",
+        lambda *_args, **_kwargs: {
+            "decision": "revise",
+            "issues": [],
+            "rationale": "canonical correction",
+            "revised_vulnerabilities": [
+                {
+                    "title": "Ultrasonic injection",
+                    "mechanism": "nonlinearity effect",
+                    "entry_point": "MEMS transducer",
+                }
+            ],
+        },
+    )
+    source = tmp_path / "sensor.md"
+    source.write_text("sensor", encoding="utf-8")
+    runner = HarnessRunner(
+        _settings(tmp_path),
+        adapter_factory=lambda root, input_path, report_path: MismatchAdapter(
+            root, input_path, report_path
+        ),
+    )
+    state = runner.run(source)
+    assert state.status == RunStatus.COMPLETED
+    assert state.metadata["critic_decision"] == "approve"
+    revised = json.loads(
+        (state.data_dir / "step3_vulnerability_items.json").read_text(encoding="utf-8")
+    )
+    assert revised[0]["mechanism_name"] == "nonlinearity effect"
+    assert revised[0]["source_component"] == "MEMS transducer"
+
+
+def test_critic_reject_stops_downstream_agents(tmp_path: Path, monkeypatch) -> None:
+    class MismatchAdapter(FakeLegacyAdapter):
+        def run_stage(self, stage: str, model: str):
+            result = super().run_stage(stage, model)
+            if stage == "vulnerability":
+                self._write(
+                    "step3_vulnerability_items.json",
+                    [{"vulnerability_name": "bad", "mechanism_name": "resonance"}],
+                )
+            return result
+
+    monkeypatch.setenv("CHATANYWHERE_API_KEY", "test-key")
+    monkeypatch.setattr(
+        "sensecllm.models.chatanywhere.ChatAnywhereGateway.complete_json",
+        lambda *_args, **_kwargs: {"decision": "reject", "issues": [], "rationale": "unsafe"},
+    )
+    source = tmp_path / "sensor.md"
+    source.write_text("sensor", encoding="utf-8")
+    runner = HarnessRunner(
+        _settings(tmp_path),
+        adapter_factory=lambda root, input_path, report_path: MismatchAdapter(
+            root, input_path, report_path
+        ),
+    )
+    state = runner.run(source)
+    assert state.status == RunStatus.REJECTED
+    assert state.stages["experiment"].status == StageStatus.PENDING

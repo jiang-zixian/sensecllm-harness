@@ -6,7 +6,12 @@ from pathlib import Path
 
 PATTERNS = (
     re.compile(r"sk-[A-Za-z0-9_-]{16,}"),
-    re.compile(r"Bearer\s+sk-[A-Za-z0-9_-]{16,}", re.IGNORECASE),
+    re.compile(r"Bearer\s+(?!sk-(?:xxx|example))[A-Za-z0-9._-]{20,}", re.IGNORECASE),
+    re.compile(
+        r"(?:api[_-]?key|auth[_-]?header|access[_-]?token|secret)\s*[:=]\s*"
+        r"['\"](?!test-|your-|example|placeholder)([^'\"]{20,})['\"]",
+        re.IGNORECASE,
+    ),
 )
 EXCLUDED_PARTS = {".git", ".venv", "RAG_data", ".rag_index", "runs"}
 TEXT_SUFFIXES = {".py", ".md", ".toml", ".yaml", ".yml", ".json", ".example"}
@@ -28,7 +33,7 @@ def main() -> int:
     if findings:
         print("Potential embedded credentials found:", *findings, sep="\n- ")
         return 1
-    print("No embedded sk-style credentials found.")
+    print("No embedded provider credentials found.")
     return 0
 
 
