@@ -1,0 +1,13 @@
+{
+  "version": "1.0",
+  "notes": "Replace chunk IDs with immutable expert relevance judgments before reporting.",
+  "cases": [
+    {
+      "case_id": "microphone-ultrasound",
+      "query": "MEMS microphone ultrasonic injection nonlinearity",
+      "rag_input": "MX-100 analog MEMS microphone",
+      "relevant_ids": [],
+      "relevance": {}
+    }
+  ]
+}

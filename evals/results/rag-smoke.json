@@ -1,0 +1,26 @@
+{
+  "schema_version": "1.0",
+  "k": 5,
+  "case_count": 1,
+  "metrics": {
+    "recall_at_k": 1.0,
+    "mrr": 1.0,
+    "ndcg_at_k": 0.89209
+  },
+  "cases": [
+    {
+      "case_id": "microphone-ultrasound-smoke",
+      "ranked_ids": [
+        "5cc65b24ff18ac414c0b:40",
+        "4caad3be4125706f3d1f:5",
+        "5cc65b24ff18ac414c0b:37",
+        "21cdc1629a1745c5989e:16",
+        "21cdc1629a1745c5989e:17",
+        "9c468ec62115735b0f4d:51"
+      ],
+      "recall_at_k": 1.0,
+      "mrr": 1.0,
+      "ndcg_at_k": 0.8920899795262092
+    }
+  ]
+}

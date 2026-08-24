@@ -1,0 +1,69 @@
+{
+  "schema_version": "1.0",
+  "case_id": "mx100-output-plumbing-smoke",
+  "run_id": "6b61958ba90b482687b5ca9f2f6ddc11",
+  "split": "dev",
+  "predictions": {
+    "sensor_type": "Acoustic (Microphone) + MX-100",
+    "mechanisms": [
+      "Aliasing Effect",
+      "Antenna Effect",
+      "Saturation Effect"
+    ],
+    "vulnerabilities": [
+      "Electromagnetic Injection via Antenna Effect on Conductive Interconnects",
+      "Saturation Effect in Analog Front-End from Over‑amplitude Acoustic or Electromagnetic Input"
+    ],
+    "extraction_fields": {}
+  },
+  "metrics": {
+    "sensor_type_exact_match": 1.0,
+    "mechanisms": {
+      "true_positive": 3,
+      "predicted_count": 3,
+      "expected_count": 3,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "vulnerabilities": {
+      "true_positive": 2,
+      "predicted_count": 2,
+      "expected_count": 2,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "extraction_field_f1": 1.0,
+    "evidence_support_precision": 0.0,
+    "unsupported_claim_rate": 1.0,
+    "experiment_constraint_pass_rate": 1.0
+  },
+  "path_counts": {
+    "accepted": 3,
+    "unresolved": 5,
+    "rejected": 1
+  },
+  "operational": {
+    "status": "completed",
+    "model": "deepseek-v3.2",
+    "critic_decision": "approve",
+    "usage": {
+      "total_agent_attempts": 10,
+      "retry_count": 0,
+      "execution_seconds": 320.975,
+      "model_calls": 12,
+      "prompt_tokens": 117622,
+      "completion_tokens": 9501,
+      "total_tokens": 127123,
+      "estimated_cost": null,
+      "by_model": {
+        "deepseek-v3.2": {
+          "calls": 12,
+          "tokens": 127123
+        }
+      },
+      "pricing_configured": false
+    }
+  }
+}

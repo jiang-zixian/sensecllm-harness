@@ -1,0 +1,23 @@
+{
+  "version": "1.0-smoke",
+  "notes": "Title-level relevance audit for plumbing validation only; not an expert benchmark.",
+  "cases": [
+    {
+      "case_id": "microphone-ultrasound-smoke",
+      "query": "MEMS microphone ultrasonic injection nonlinearity",
+      "rag_input": "fictional analog microphone",
+      "relevant_ids": [
+        "5cc65b24ff18ac414c0b:40",
+        "5cc65b24ff18ac414c0b:37",
+        "21cdc1629a1745c5989e:16",
+        "21cdc1629a1745c5989e:17"
+      ],
+      "relevance": {
+        "5cc65b24ff18ac414c0b:40": 3,
+        "5cc65b24ff18ac414c0b:37": 2,
+        "21cdc1629a1745c5989e:16": 3,
+        "21cdc1629a1745c5989e:17": 2
+      }
+    }
+  ]
+}

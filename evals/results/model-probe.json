@@ -1,0 +1,45 @@
+{
+  "scope": "gateway schema/latency probe; not task-quality evaluation",
+  "results": [
+    {
+      "model": "deepseek-v3.2",
+      "status": "ok",
+      "latency_seconds": 3.804,
+      "schema_valid": true
+    },
+    {
+      "model": "deepseek-v3.2-thinking",
+      "status": "ok",
+      "latency_seconds": 4.769,
+      "schema_valid": true
+    },
+    {
+      "model": "deepseek-v4-flash",
+      "status": "ok",
+      "latency_seconds": 8.607,
+      "schema_valid": true
+    }
+  ],
+  "usage": {
+    "model_calls": 3,
+    "prompt_tokens": 214,
+    "completion_tokens": 250,
+    "total_tokens": 464,
+    "estimated_cost": null,
+    "by_model": {
+      "deepseek-v3.2": {
+        "calls": 1,
+        "tokens": 78
+      },
+      "deepseek-v3.2-thinking": {
+        "calls": 1,
+        "tokens": 136
+      },
+      "deepseek-v4-flash": {
+        "calls": 1,
+        "tokens": 250
+      }
+    },
+    "pricing_configured": false
+  }
+}

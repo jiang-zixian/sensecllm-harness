@@ -1,0 +1,17 @@
+{
+  "version": "1.0",
+  "name": "sensecllm-sensor-security-benchmark",
+  "cases": [
+    {
+      "case_id": "example-microphone-001",
+      "input_path": "examples/microphone.md",
+      "split": "test",
+      "notes": "Replace with expert-reviewed labels before reporting metrics.",
+      "labels": {
+        "sensor_type": "microphone",
+        "mechanisms": ["nonlinearity"],
+        "vulnerabilities": ["ultrasonic command injection"]
+      }
+    }
+  ]
+}

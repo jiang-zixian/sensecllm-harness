@@ -1,0 +1,14 @@
+{
+  "case_id": "mx100-output-plumbing-smoke",
+  "input_path": "examples/demo_sensor.md",
+  "split": "dev",
+  "notes": "Labels mirror one reviewed synthetic run to validate metric plumbing; do not cite as independent accuracy.",
+  "labels": {
+    "sensor_type": "Acoustic (Microphone) + MX-100",
+    "mechanisms": ["Saturation Effect", "Antenna Effect", "Aliasing Effect"],
+    "vulnerabilities": [
+      "Saturation Effect in Analog Front-End from Over‑amplitude Acoustic or Electromagnetic Input",
+      "Electromagnetic Injection via Antenna Effect on Conductive Interconnects"
+    ]
+  }
+}
