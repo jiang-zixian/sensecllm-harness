@@ -20,6 +20,9 @@ and RAG pipeline with resumable Agent execution and historical case memory.
 - Environment-only secret configuration
 
 See [docs/architecture.md](docs/architecture.md) for the design and roadmap.
+For a Chinese code-level architecture walkthrough, per-Agent implementation
+guide, and 30 project-specific interview questions, see
+[docs/interview-guide.md](docs/interview-guide.md).
 Measured smoke results and their limitations are documented in
 [docs/evaluation-results.md](docs/evaluation-results.md).
 Provider-key handoff is documented in
