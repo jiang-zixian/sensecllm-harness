@@ -1,9 +1,10 @@
 # Provider credential rotation runbook
 
-The repository no longer contains provider credentials, but credentials that
-previously appeared in source or shared history must be rotated by the account
-owner. In this project that means the ChatAnywhere inference credential and the
-SiliconFlow embedding/reranking credential.
+The repository no longer contains provider credentials. The account owner chose
+on 2026-08-25 to continue using the existing ChatAnywhere inference credential
+and SiliconFlow embedding/reranking credential. Rotation is therefore an
+optional hardening action, not a release blocker; this runbook remains available
+if that risk decision changes.
 
 ## Safe sequence
 

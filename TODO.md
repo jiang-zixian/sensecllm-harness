@@ -12,12 +12,13 @@ until measured on committed evaluation data.
 - [x] Add typed run/stage state, JSON checkpoint/resume, and JSONL lifecycle events.
 - [x] Add SQLite Episodic Memory and physical verification feedback.
 - [x] Add unit tests, Ruff, MyPy, and import smoke tests.
-- [ ] Rotate every credential that previously appeared in source or shared history. (Manual)
+- [x] Resolve credentials previously present in source/history: repository and
+  stale bytecode are clean; the account owner explicitly accepted continued use
+  of the existing ChatAnywhere and SiliconFlow keys on 2026-08-25.
 
-  External owner action: rotate the ChatAnywhere and SiliconFlow credentials in
-  their provider dashboards after the demo, then update the local environment.
-  The repository contains neither credential and cannot perform account-level
-  rotation through either OpenAI-compatible inference API.
+  Risk note: rotation remains the safer security practice because prior exposure
+  cannot be disproved. Existing keys stay outside Git and are injected only via
+  the local environment; rotation is no longer a project completion requirement.
 
 ## Phase 1 — production-safe Harness runtime
 
