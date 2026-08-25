@@ -9,6 +9,7 @@ description = "Physics-constrained multi-agent harness for sensor security analy
 requires-python = ">=3.10"
 dependencies = [
   "pydantic>=2.8,<3",
+  "python-dotenv>=1.0,<2",
   "requests>=2.31,<3",
 ]
 

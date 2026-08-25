@@ -10,8 +10,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BASE_DIR = PROJECT_ROOT
+load_dotenv(PROJECT_ROOT / ".env", override=False)
 
 
 def _env_path(name: str, default: Path) -> Path:

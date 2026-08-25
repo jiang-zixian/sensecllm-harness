@@ -2,11 +2,18 @@ from __future__ import annotations
 
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
+from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+load_dotenv(PROJECT_ROOT / ".env", override=False)
+
+
+def _env_path(name: str, default: Path) -> Path:
+    raw = Path(os.getenv(name, str(default))).expanduser()
+    return raw if raw.is_absolute() else PROJECT_ROOT / raw
 
 
 def benchmark_sensor_models(
@@ -36,8 +43,12 @@ def _env_float(name: str, default: float) -> float:
 
 @dataclass(frozen=True)
 class RAGConfig:
-    data_dir: Path = Path(os.getenv("RAG_DATA_DIR", str(PROJECT_ROOT / "RAG_data")))
-    index_dir: Path = Path(os.getenv("RAG_INDEX_DIR", str(PROJECT_ROOT / ".rag_index")))
+    data_dir: Path = field(
+        default_factory=lambda: _env_path("RAG_DATA_DIR", PROJECT_ROOT / "RAG_data")
+    )
+    index_dir: Path = field(
+        default_factory=lambda: _env_path("RAG_INDEX_DIR", PROJECT_ROOT / ".rag_index")
+    )
     api_base: str = os.getenv("SILICONFLOW_API_BASE", "https://api.siliconflow.cn/v1")
     api_key: str = os.getenv("SILICONFLOW_API_KEY", "")
     embedding_model: str = os.getenv("RAG_EMBEDDING_MODEL", "BAAI/bge-m3")

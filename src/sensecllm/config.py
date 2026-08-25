@@ -1,18 +1,27 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
+def _env_path(name: str, default: Path) -> Path:
+    raw = Path(os.getenv(name, str(default))).expanduser()
+    return raw if raw.is_absolute() else PROJECT_ROOT / raw
+
+
 @dataclass(frozen=True)
 class HarnessSettings:
     project_root: Path = PROJECT_ROOT
-    runs_dir: Path = Path(os.getenv("SENSECLLM_RUNS_DIR", str(PROJECT_ROOT / "runs")))
-    memory_db: Path = Path(
-        os.getenv("SENSECLLM_MEMORY_DB", str(PROJECT_ROOT / "runs" / "memory.sqlite3"))
+    runs_dir: Path = field(
+        default_factory=lambda: _env_path("SENSECLLM_RUNS_DIR", PROJECT_ROOT / "runs")
+    )
+    memory_db: Path = field(
+        default_factory=lambda: _env_path(
+            "SENSECLLM_MEMORY_DB", PROJECT_ROOT / "runs" / "memory.sqlite3"
+        )
     )
     default_model: str = os.getenv("SENSECLLM_MODEL", "deepseek-v3.2")
     agent_timeout_seconds: int = int(os.getenv("SENSECLLM_AGENT_TIMEOUT_SECONDS", "900"))

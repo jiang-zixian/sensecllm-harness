@@ -34,21 +34,16 @@ pip install -e '.[api,legacy,rag,dev]'
 cp .env.example .env
 ```
 
-Export the required variables from `.env` with your preferred environment
-loader, then start the existing RAG service:
+Fill `CHATANYWHERE_API_KEY` and `SILICONFLOW_API_KEY` in `.env` once. The CLI,
+API, legacy workers, and Sensor RAG load this ignored file automatically;
+explicit process environment variables still take precedence. Then start RAG:
 
 ```bash
 python -m sensor_rag serve
 ```
 
-The default Harness model is `deepseek-v3.2`. Configure it without committing
-the key:
-
-```bash
-export CHATANYWHERE_API_KEY='your-key'
-export SENSECLLM_MODEL='deepseek-v3.2'
-export SENSECLLM_CRITIC_MODEL='deepseek-v3.2'
-```
+The default Harness and Critic model is `deepseek-v3.2`; change either value in
+`.env` when needed. Never force-add `.env` to Git.
 
 Run an analysis:
 
