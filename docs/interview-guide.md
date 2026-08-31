@@ -5,16 +5,18 @@
 > 适用岗位：大模型算法实习、LLM Application / Agent Engineer、RAG 算法、AI Infra 实习。
 >
 > 文档基于仓库 2026-08-25 的真实实现与实测结果；互联网趋势资料检索于 2026-08-25。
+>
+> **阅读重点：本文聚焦 Agent Harness 的实现。传感器安全只是任务载体，领域机理仅保留理解 Agent 输入输出所需的最小背景。**
 
 ---
 
 ## 0. 先记住这三句话
 
-1. **SenseCLLM Harness 是一个 physics-constrained sensor-security Agent Harness**：它将传感器文档理解、论文检索、物理机理图搜索、漏洞分析、实验规划和防御生成组织为完整的多 Agent 系统，并具备状态恢复、三类 Memory、Critic、评测和可观测性。
-2. **系统的控制流主要是确定性的 workflow，局部推理由 LLM 驱动**：Supervisor 决定 Agent 顺序，LLM 负责文档抽取、机理候选生成、漏洞分析和条件式 Critic；因此面试时应称为“multi-Agent workflow / agentic system”，不要夸大成完全自主规划系统。
-3. **项目最重要的设计原则是证据分层**：论文 RAG 是外部证据，目标设备 datasheet 是目标事实，Episodic Memory 只是历史先验；三者不能混为一谈。
+1. **SenseCLLM Harness 的核心贡献是 Agent runtime，而不是简单增加多个 Prompt**：它实现了 Agent contract、Supervisor、typed state、artifact handoff、checkpoint/resume、Memory、Critic/HITL、budget、trace 和 eval。
+2. **控制流是确定性的 multi-Agent workflow，阶段内部包含 LLM-driven reasoning**：Supervisor 负责可预测的依赖和状态迁移，专业 Agent 负责有边界的推理，因此系统兼顾可控性与模型能力。
+3. **Agent 间不共享无限对话，而是传递结构化状态和 artifacts**：每个 Agent 只获得完成职责所需的最小上下文，历史经验、外部证据和本次运行事实有独立 provenance。
 
-这三句话分别回答：项目是什么、Agent 到底有多自主、如何控制幻觉。
+这三句话分别回答：Harness 实现了什么、Agent 到底有多自主、Agent 如何协作。
 
 ---
 
@@ -44,17 +46,15 @@
 
 ### 2.1 30 秒版本
 
-> 我设计并实现了一个面向传感器安全分析的可恢复 multi-Agent Harness。系统用 Supervisor 顺序编排 8 个职责明确的 Agent，用论文 RAG 和物理约束图生成可解释的攻击机理路径，用 SQLite 保存历史设备案例和物理验证结果，并用 deterministic-first Critic 做一致性校验和人工审批路由。工程上支持 subprocess isolation、checkpoint/resume、retry/cancel、SSE、token budget、trace、FastAPI 和评测消融。核心特点不是简单串联 LLM，而是把目标设备事实、论文证据和历史先验严格分开。
+> 我设计并实现了一个可恢复的 multi-Agent Harness。系统通过统一的 `BaseAgent` contract 和 `AgentContext` 组织 8 个专业 Agent，由 Supervisor 管理依赖、状态迁移、重试、取消、预算和 checkpoint；Agent 之间通过 run-scoped artifacts 传递结构化上下文。系统还包含三类 Memory、deterministic-first Critic、HITL、SSE、trace 和 Agent ablation。传感器安全是应用场景，项目重点是把多阶段 LLM 推理做成可恢复、可评测、可审计的 Agent runtime。
 
 ### 2.2 两分钟版本
 
-> 这个项目的输入是 sensor datasheet 或设备描述，输出是有证据和物理路径约束的漏洞、实验验证方案与防御报告。
+> 整体分为三层。第一层是 Agent contract：所有 Agent 暴露 `name`、`depends_on` 和 `execute(context)`，`AgentContext` 统一注入 RunState、runtime、Memory 和 settings。这样领域 Agent、确定性 Memory Agent 和 Critic Agent 可以被同一个 Supervisor 调度，也可以在测试中替换 runtime 或 Memory。
 >
-> 第一层是领域核心。Document 阶段抽取传感器类型、组件和参数；Mechanism 阶段先通过 hybrid RAG 检索论文，再由 LLM 生成候选物理转换边，最后经过类型、证据和参数约束检查做 beam-style graph search；Vulnerability、Experiment 和 Defense 阶段把被接受的机理路径逐步转成漏洞假设、可执行验证参数和针对具体路径边的防御。
+> 第二层是 Harness runtime：Supervisor 维护 typed `RunState`/`StageRecord`，逐阶段检查 dependency、cancel 和 budget；执行前后原子保存 checkpoint，记录 event、trace、usage 和 artifact。每个领域 Agent 在独立 subprocess 中运行，所以并发 run 不共享 module-level state；transient/timeout 错误指数退避重试，失败或中断后以 stage-level at-least-once 语义恢复。
 >
-> 第二层是 Agent Harness。一个自研 Supervisor 管理 typed RunState 和 StageRecord，每个领域阶段都运行在独立 subprocess 中，将 module-level runtime state 隔离在单次阶段执行范围内，避免并发运行相互污染。每个 Agent 完成后原子写 checkpoint，并追加 events、trace、usage 和 artifact，因此运行中断后可以从未完成阶段恢复，还支持 timeout、指数退避重试、取消、token/attempt/time/cost budget。
->
-> 第三层是可靠性。CaseRecall 和 CaseRefinement 使用 SQLite Episodic Memory，但历史案例只做 prior；Critic 先在本地检查漏洞的 mechanism/component 是否来自 accepted path，只有异常时才调用 DeepSeek，之后路由到 approve、revise、reject 或 human review。最后我做了 single-agent、no-memory、no-RAG、no-constraint、no-Critic 等消融，并明确把 synthetic smoke test 和专家标注 benchmark 区分开。
+> 第三层是 Agent quality control：Working Memory 保存运行现场，Episodic Memory 召回带验证反馈的历史案例，Conversation Memory 隔离保存报告问答。Critic 先执行确定性 invariant checks，异常时才调用 DeepSeek，并路由到 approve、revise、reject 或 human review。最后通过 single-agent、no-memory、no-Critic 等 profile 和 trajectory metrics 评测 Harness 各组件是否真正有价值。
 
 ### 2.3 STAR 版本
 
@@ -291,7 +291,7 @@ Checkpoint 采用 `tmp file -> replace`：先写 `checkpoint.json.tmp`，再原�
 
 ---
 
-## 7. 每个 Agent 的实现详解
+## 7. Agent 实现详解
 
 ### 7.1 Agent 装配与依赖
 
@@ -302,11 +302,59 @@ document -> case_recall -> mechanism -> case_refinement
          -> vulnerability -> critic -> experiment -> defense
 ```
 
-`BaseAgent` 只有 `name`、`depends_on` 和 `execute(context)`。`AgentContext` 注入 `RunState`、runtime adapter、Memory store 和 settings。这样的 dependency injection 让测试可以替换 fake runtime/fake memory。
+`BaseAgent` 刻意保持最小接口：
+
+```python
+class BaseAgent(ABC):
+    name: str
+    depends_on: tuple[str, ...] = ()
+
+    @abstractmethod
+    def execute(self, context: AgentContext) -> Any:
+        ...
+```
+
+`AgentContext` 是 Harness 与 Agent 之间的 dependency-injection boundary：
+
+```python
+@dataclass
+class AgentContext:
+    state: RunState       # 本次运行的 working memory
+    runtime: Any          # 领域工具执行适配器
+    memory: Any           # episodic/conversation store
+    settings: Any         # timeout、model、budget 等配置
+```
+
+最小 contract 的好处是：
+
+- Supervisor 不需要知道 Agent 内部是 LLM、SQL、规则还是 subprocess；
+- Agent 可以通过 `depends_on` 声明前置条件；
+- 测试可注入 fake runtime/fake memory，不需要真实 provider；
+- 新 Agent 只需实现 `execute()`，无需修改 Supervisor 主循环；
+- orchestration concern 与 domain reasoning concern 分离。
+
+当前 Agent 可以按执行方式分成三类：
+
+| 类型 | Agent | 实现方式 | Harness 关注点 |
+|---|---|---|---|
+| LLM/domain Agent | Document、Mechanism、Vulnerability、Experiment、Defense | 通过 runtime 调用独立 stage worker | isolation、timeout、artifact contract |
+| Deterministic Memory Agent | CaseRecall、CaseRefinement | Python + SQLite | retrieval policy、provenance、ranking |
+| Hybrid Critic Agent | Critic | deterministic checks + conditional LLM | decision routing、fail-closed、HITL |
+
+一个 Agent attempt 的统一生命周期为：
+
+```text
+dependency check
+  -> mark RUNNING + checkpoint + agent.started
+  -> budget check + attempts += 1
+  -> execute(AgentContext)
+  -> COMPLETED + trace + usage + checkpoint + agent.completed
+  -> transient/timeout ? backoff retry : FAILED
+```
 
 Profile 包括 `full`、`no_memory`、`no_critic` 和 `single_agent`，用于可重复消融。
 
-### 7.2 DocumentAgent
+### 7.2 DocumentAgent：入口 Agent
 
 | 项目 | 内容 |
 |---|---|
@@ -316,15 +364,15 @@ Profile 包括 `full`、`no_memory`、`no_critic` 和 `single_agent`，用于可
 | 输出 | `step1_output.json`、sensor info、`rag_input` |
 | 作用 | 抽取目标设备组件、参数、传感器类型与可追溯源信息 |
 
-它是目标设备事实的入口。DocumentAgent 的结果属于 **target evidence**，后续 RAG 和 Memory 不能覆盖它。
+从 Agent 实现角度看，它负责把非结构化用户输入转换成下游稳定消费的 structured artifact。它体现的是 **input normalization Agent** 模式：下游 Agent 不再重复读取整份文档，而只读取抽取后的高信号状态。其主要风险是 JSON schema 漂移，因此当前通过结构化 artifact 和 alias fallback 做兼容；生产环境应增加 Pydantic validation 和字段级 provenance。
 
-风险包括 PDF parser 噪声、字段别名、单位不统一和 LLM JSON schema 漂移。当前通过结构化 artifact 和下游 alias fallback 做有限兼容；生产环境应增加 Pydantic schema、单位归一化和字段级 provenance。
+### 7.3 CaseRecallAgent：第一次 Memory Read
 
-### 7.3 CaseRecallAgent
+这是确定性 Agent，不调用 LLM。它读取 DocumentAgent artifact，构造 Memory query，搜索 SQLite、去重并取前 5，最后同时写 artifact 和 `state.metadata["similar_cases"]`。
 
-这是第一阶段 Memory Agent，不调用 LLM：读取 Step1；提取 `device_model`/`sensor_type`；分别搜索 SQLite；按 case ID 去重并取前 5；写 `episodic_case_recall.json`。初次召回只使用设备信息，因为当前机理路径尚未生成。
+它展示了一个重要观点：**Agent 不等于一次 LLM call**。只要组件拥有独立职责、上下文、输入输出 contract，并由 Harness 调度，它就可以是检索 Agent、规则 Agent 或工具 Agent。使用确定性实现还能节省 token 并提高可复现性。
 
-### 7.4 MechanismAgent
+### 7.4 MechanismAgent：Tool-Using Reasoning Agent
 
 | 项目 | 内容 |
 |---|---|
@@ -334,34 +382,25 @@ Profile 包括 `full`、`no_memory`、`no_critic` 和 `single_agent`，用于可
 | 输出 | accepted/unresolved/rejected mechanism paths |
 | 主要算法 | LLM candidate generation + physics-constrained graph search |
 
-```mermaid
-flowchart LR
-  Q[Sensor facts] --> R[Hybrid RAG]
-  R --> P[Evidence memo]
-  Q --> G[GraphBuilder]
-  P --> L[LLM layer candidate generator]
-  G --> L
-  L --> T[Type / scope check]
-  T --> E[Evidence check]
-  E --> C[Parameter constraint check]
-  C --> S[Path scoring + frontier pruning]
-  S -->|next layer| L
-  S --> A[accepted / unresolved / rejected]
+从 Agent 角度看，它不是“一次 Prompt”，而是一个 bounded reasoning loop：
+
+```text
+retrieve evidence -> construct local context -> LLM proposes candidates
+-> deterministic tool checks -> prune frontier -> repeat or stop
 ```
 
-关键实现：
+它体现了四个通用 Agent 设计：
 
-- 从多个 external signal origins 建立 frontier；正常 in-band input 被过滤，避免把正常工作机理误当攻击。
-- 每一层把 frontier states 分组并批量交给 LLM 生成候选，不允许任意 per-state 无限调用。
-- `max_depth`、`beam_width=24`、`max_paths_per_signal=12`、`accepted_path_limit=36` 限制搜索空间。
-- 候选经过 operator/type、evidence 和 parameter constraint adjudication。
-- `accepted` 表示必要检查通过；`rejected` 表示明确冲突；`unresolved` 表示信息不足或达到搜索上限。保留 unresolved 比强行判断更符合科研分析。
+- **LLM proposes, code disposes**：模型提出开放语义候选，确定性工具验证不变量；
+- **bounded autonomy**：`max_depth`、beam width、最大调用数和 accepted-path limit 防止无限循环；
+- **batched tool use**：一层 frontier 合并调用，避免每个 state 单独消耗一次模型请求；
+- **explicit uncertainty**：结果分为 accepted、unresolved、rejected，而不是强迫模型二选一。
 
-`ParameterConstraintChecker` 使用三值逻辑：出现 false 就 false；没有 false 但有 unknown 则 unknown；否则 true。约束关闭时直接 true，用于消融。
+传感器图搜索只是该 Agent 的领域工具。面试重点应放在“如何把 LLM generation 包在受约束、可停止、可追踪的循环里”。
 
-### 7.5 CaseRefinementAgent
+### 7.5 CaseRefinementAgent：第二次 Memory Read
 
-MechanismAgent 完成后，它使用 accepted paths 的 mechanism/component 重新召回和排序历史案例。
+MechanismAgent 完成后，它利用新增的中间结果进行第二阶段检索和重排。这是 **retrieve-refine** 模式：早期上下文不足时先做粗召回，获得更具体的运行状态后再精排，避免一开始就凭不完整信息做最终 Memory 选择。
 
 ```text
 memory_score =
@@ -372,9 +411,9 @@ memory_score =
   - 0.10 × inconclusive_count
 ```
 
-再以 `(memory_score, updated_at)` 降序取前 5。这是可解释 heuristic，不是学习得到的 ranker。未来有足够反馈后可用 learning-to-rank，但要防 exposure bias。
+再以 `(memory_score, updated_at)` 降序取前 5，并写入 `similar_cases_ranked`。这是可解释 heuristic，不是学习得到的 ranker。对 Agent 系统而言，它提供了可审计的 context selection policy；未来有足够反馈后可用 learning-to-rank，但要防 exposure bias。
 
-### 7.6 VulnerabilityAgent
+### 7.6 VulnerabilityAgent：Structured Generation Agent
 
 | 项目 | 内容 |
 |---|---|
@@ -384,9 +423,9 @@ memory_score =
 | 输出 | `step3_vulnerability_items.json` |
 | 作用 | 把物理可达路径转成漏洞假设和可利用条件 |
 
-它应该把每个 vulnerability 绑定到 mechanism、source component、path ID 和 exploitable parameters。当前执行路径使用一次 forward reasoning classification；verifier 组件可用于专项实验，但主流程由独立 Critic 统一承担复核职责，避免重复审查。
+它把上游复杂 artifacts 转换成固定 schema，是典型的 **structured generation Agent**。它的关键不是领域结论本身，而是必须保留上游引用字段，使 Critic 能验证每个输出是否有合法来源。生成和审查由不同 Agent 承担，避免同一上下文中的 self-review bias。
 
-### 7.7 CriticAgent
+### 7.7 CriticAgent：Evaluator 与 Router
 
 Critic 采用 **deterministic-first, LLM-on-exception**。
 
@@ -404,7 +443,7 @@ deterministic review 通过就不调用模型；否则调用 DeepSeek 独立审�
 
 模型调用失败也不会默认放行，而是 fail closed 到 human review。prompt version、rule version 和 model 都持久化，便于审计与实验复现。
 
-### 7.8 ExperimentAgent
+### 7.8 ExperimentAgent：Plan Compiler Agent
 
 | 项目 | 内容 |
 |---|---|
@@ -414,9 +453,9 @@ deterministic review 通过就不调用模型；否则调用 DeepSeek 独立审�
 | 输出 | verification plans、constraint traces |
 | 作用 | 将漏洞假设编译成可验证的实验参数范围 |
 
-系统生成的是 **proposed verification plan**，不是实验已经成功。只有人真正完成实验并写回 confirmed/rejected，才成为 Episodic Memory 的验证结果。
+从 Agent 架构看，它把经过审查的 hypothesis 编译成结构化 action plan，并附带 constraints 和 provenance。它不直接执行高风险动作，而把方案交给人验证；验证结果通过 Memory write path 回流。这是“Agent proposes、human acts、Memory learns”的闭环。
 
-### 7.9 DefenseAgent
+### 7.9 DefenseAgent：Synthesis Agent
 
 | 项目 | 内容 |
 |---|---|
@@ -426,7 +465,7 @@ deterministic review 通过就不调用模型；否则调用 DeepSeek 独立审�
 | 输出 | 防御建议与最终 report |
 | 作用 | 将 mitigation 绑定到具体耦合路径或 graph edge |
 
-相比通用“加滤波器、做屏蔽”，路径绑定可以回答防御在哪里生效、阻断哪条 signal conversion，以及可能牺牲的正常 sensitivity。运行完成后 Supervisor 把设备、路径、漏洞和实验方案写入 Episodic Memory。
+它是主 DAG 的 synthesis Agent：读取多个上游 artifacts，生成面向用户的最终报告。完成后由 Supervisor 而不是 Agent 自己触发 artifact discovery 和 Episodic Memory write，避免业务 Agent 同时承担 orchestration side effects。
 
 ### 7.10 SingleAgentBaseline
 
@@ -478,11 +517,11 @@ Report chat 的消息按 `run_id` 保存，assistant 同时保存 validated cita
 
 ---
 
-## 9. RAG 的完整实现
+## 9. RAG 在 Agent 系统中的角色
 
-### 9.1 Indexing 与查询链
+### 9.1 RAG 是 Data Tool，不是另一个 Memory
 
-现有 RAG 使用 LanceDB 保存 PDF chunks、embeddings 和 title/page/source metadata。真实 smoke index 为 20 PDFs、745 chunks、0 failures。
+RAG 由 MechanismAgent 作为外部 Data Tool 调用，负责把大规模论文语料压缩为带 provenance 的 evidence context。Agent 不直接持有整个索引，也不把 RAG 返回内容写成长期 Memory，这能保持检索服务、运行状态和历史经验三者解耦。
 
 ```text
 sensor context -> retrieval query -> embedding
@@ -504,26 +543,51 @@ RRF(d) = Σ weight_r / (60 + rank_r(d))
 
 向量权重 1.0，FTS 0.85；`strong_related_papers` 再乘 1.06。RRF 不依赖两个检索器原始 score 的量纲。之后 reranker 统一打分、过滤 threshold，并限制单篇论文 chunk 数，避免单一文档占满 context。
 
-### 9.2 Evidence Prompt 与污染防护
+Hybrid retrieval 的 dense + FTS + RRF + reranker 属于工具内部实现。面试 Agent 岗时只需说明它为什么适合作为工具边界：输入是 query/context，输出是有限 evidence pack 和 sources，失败可以被 Harness 识别，结果可以被 trace 和 citation audit。
 
-Prompt 要求逐 claim citation，保留 component/coupling path/parameters/conditions/effect/defense，区分 demonstrated evidence 与 hypothesis，证据不足就明确说明。
+### 9.2 Tool Output 如何进入 Agent Context
 
-RAG service 自动排除 benchmark sensor models 和请求 `exclude_terms`，而且是 service-wide boundary，不依赖 caller 自觉传参，用于降低 benchmark label leakage。
+RAG 输出先形成 evidence pack，再进入专业 Agent 的局部上下文。Prompt 要求逐 claim citation，区分 demonstrated evidence 与 hypothesis，证据不足就明确说明。这样 RAG 结果是模型可消费的数据，而不是能够覆盖 system instruction 的控制文本。
 
-### 9.3 如何评测
+benchmark exclusion 被放在 service-wide boundary，而不是依赖每个 Agent caller 自觉执行。这体现了通用原则：安全和评测隔离规则应尽量下沉到工具接口，而不是只写在 Prompt 中。
+
+### 9.3 Agent 为什么仍要关心 Retrieval Metrics
 
 - `Recall@K`：相关文档有多少在前 K；
 - `MRR`：第一个相关结果排名倒数；
 - `NDCG@K`：考虑多级相关性和位置折损；
 - 还应看 faithfulness、citation precision、latency 和 empty retrieval rate。
 
-当前 Recall@5=1.0、MRR=1.0、NDCG@5=0.8921 只来自 **one-query title-reviewed smoke audit**，不能说 RAG 准确率 100%。
+这些指标决定 Agent 得到的 context 上限；生成模型不能恢复从未召回的证据。当前 Recall@5=1.0、MRR=1.0、NDCG@5=0.8921 只来自 **one-query title-reviewed smoke audit**，不能说 RAG 准确率 100%。
 
 ---
 
 ## 10. Agent 间通信与 Context Engineering
 
 本项目不共享无限增长的 conversation。每阶段读取所需 artifacts，输出新 artifacts；Critic 只截取最多 12 条 accepted paths、20 个 vulnerabilities、5 个 similar cases，并限制 prompt 长度。
+
+### 10.1 为什么选择 Artifact Handoff
+
+Agent 协作常见三种方式：
+
+| 方式 | 优点 | 缺点 | 本项目选择 |
+|---|---|---|---|
+| 共享完整 message history | 实现简单、对话连续 | context 膨胀、耦合高、难恢复 | 不作为主 DAG 通信方式 |
+| Agent 直接互相调用 | 动态性强 | 调用链隐式、易递归、难做统一 budget | 当前不采用 |
+| Supervisor + structured artifacts | 可审计、可恢复、可单测 | schema 管理成本 | 主 DAG 使用 |
+
+Artifact handoff 让每个 Agent 的输入输出形成可检查 contract。某个 Agent 出错时，可以只查看它读取和生成的文件；resume 时也无需重放此前所有 LLM conversation。
+
+### 10.2 State、Metadata 与 Artifact 的职责
+
+- `RunState`：控制面状态，例如 status、current stage、attempts；
+- `metadata`：小型跨阶段索引，例如 similar case summaries、critic decision、usage；
+- `artifact`：完整领域结果，例如 paths、vulnerabilities、review；
+- `event/trace`：观测记录，不作为业务真值来源。
+
+避免把大对象全塞进 `metadata`，也避免让下游靠解析 log 获取输入。控制面、数据面和观测面分离后，Agent contract 更稳定。
+
+### 10.3 Context Selection
 
 这是 context engineering：
 
@@ -590,12 +654,13 @@ Web UI 支持上传、live Agent graph、path 状态、artifact/log、Memory fee
 
 | 层级 | 指标 |
 |---|---|
-| Document | extraction field PR/F1、sensor type exact match |
-| Mechanism | mechanism PR/F1、accepted/unresolved/rejected counts |
-| Vulnerability | vulnerability PR/F1、evidence-support precision、unsupported-claim rate |
-| Experiment | constraint pass rate |
-| RAG | Recall@K、MRR、NDCG@K |
-| Runtime | duration、attempts、retries、failure class、calls、tokens、cost |
+| Orchestration | run completion、stage success、dependency violation、resume success |
+| Reliability | retries、failure class、timeout、cancel latency、HITL rate |
+| Context/Memory | context tokens、retrieval hit、citation validity、verified-case hit |
+| Critic | approve/revise/reject 分布、false accept、false reject |
+| Efficiency | duration、calls、tokens、configured cost、time per Agent |
+| Domain outcome | extraction/label PR-F1、evidence support、constraint pass rate |
+| RAG tool | Recall@K、MRR、NDCG@K、retrieval latency |
 
 Agent Evaluation 同时看 Outcome 和 Trajectory。前者是最终结论/环境状态，后者是 calls、tokens、retries、tools、citations 和中间路径。
 
@@ -625,7 +690,7 @@ Agent Evaluation 同时看 Outcome 和 Trajectory。前者是最终结论/环境
 
 ### Q3：为什么 Agent 串行，没有并行？
 
-**答：** 阶段有真实数据依赖。可并行的位置是独立 signal origins、多个 vulnerability 的实验规划、RAG vector/FTS 和多 judge，但必须评测成本收益。
+**答：** 主 DAG 的阶段存在真实数据依赖，串行可以保证每个 Agent 获得完整上游 artifact。可并行的位置是同一阶段内的独立搜索分支、多个候选计划、RAG 的异构检索和多 judge。并行化前要处理共享 budget、结果归并、partial failure 和 cancellation propagation，并评测额外 token 是否值得。
 
 ### Q4：Supervisor 如何保证顺序？
 
@@ -659,25 +724,25 @@ Agent Evaluation 同时看 Outcome 和 Trajectory。前者是最终结论/环境
 
 **答：** RAG 是外部论文 evidence，Memory 是历史经验 prior；写路径、可信度、召回算法和指标完全不同，不能混库后丢失 provenance。
 
-### Q12：Hybrid RAG 如何融合？
+### Q12：你怎样定义一个 Agent 的接口？
 
-**答：** dense cosine 和 FTS 各取候选，用 weighted RRF 融合，之后 collection boost、文档多样性限制和 reranker threshold/top-k。RRF 不需校准异构原始分数。
+**答：** 当前最小 contract 是 `name + depends_on + execute(AgentContext)`。Context 注入 state、runtime、memory、settings，Agent 返回结果并写 run-scoped artifact。Supervisor 只依赖 contract，不关心内部是 LLM、SQL 还是规则。生产版可以进一步为 input/output 增加泛型和 Pydantic schema。
 
-### Q13：chunk size/top-k 怎么选？
+### Q13：Agent 之间如何通信？为什么不用共享完整对话？
 
-**答：** 在固定 validation queries 上联合调 Recall/NDCG、citation support、latency 和 tokens。太小丢上下文，太大引入噪声；top-k 太小漏证据，太大 context dilution。当前是工程默认，尚无大规模 expert sweep。
+**答：** 主 DAG 使用 Supervisor 管理的 structured artifact handoff，小型索引放 metadata。这样可审计、可恢复、可单测，并避免 context 随阶段无限增长。完整 conversation 只用于独立的 report chat，不污染主推理链。
 
-### Q14：如何控制 RAG 幻觉？
+### Q14：RunState、Memory 和 Context 有什么区别？
 
-**答：** provenance、rerank threshold、diversity、逐 claim citations、证据不足输出不足、graph constraints、Critic/HITL，是 layered mitigation，不承诺消灭幻觉。
+**答：** RunState 是控制面 working state；Memory 是可跨 run 检索的持久经验；Context 是某一次模型调用实际看到的有限 token 集。Harness 从 State、Memory、RAG 和 artifacts 中选择信息组装 Context，三者不能混为一个大对象。
 
-### Q15：物理约束图为什么比一次 Prompt 好？
+### Q15：为什么使用确定性 workflow，而不是让 Planner 动态调度？
 
-**答：** 图把 external signal -> component -> mechanism -> output 拆成可检查边，每层经过类型、证据和参数约束，并保留 unresolved，能定位结论在哪条边失败。
+**答：** 当前任务阶段依赖稳定且结论风险较高，确定性 DAG 更易恢复、评测和审计。动态 Planner 适合步骤无法预知的开放任务，但会增加循环、预算和复现风险。未来可在局部增加 bounded planner，而不是把整个控制面交给模型。
 
-### Q16：LLM 与确定性代码怎样分工？
+### Q16：Agent 与 Tool 的边界是什么？
 
-**答：** LLM 提出开放语义候选；代码负责 scope、图结构、约束、去重、pruning、上限和分类。让模型处理开放性，让代码守住不变量。
+**答：** Tool 提供窄而确定的能力，例如检索、运行领域 stage 或查询 Memory；Agent 负责根据职责组织上下文、调用能力并产生决策或 artifact。当前 RAG/runtime/Memory store 是 tools，Mechanism/Critic/CaseRecall 是由 Supervisor 调度的 Agent。边界的核心是“能力执行”与“任务决策”分离。
 
 ### Q17：Critic 为什么不直接总是调用第二个模型？
 
@@ -709,11 +774,11 @@ Agent Evaluation 同时看 Outcome 和 Trajectory。前者是最终结论/环境
 
 ### Q24：如何降低成本和延迟？
 
-**答：** trace 定位热点；deterministic-first、frontier batch、context selection、cache embedding/RAG、小模型 routing、并行独立任务、early stop 和 budgets。先有 eval baseline 再优化。
+**答：** trace 定位热点；deterministic-first、batching、context selection、cache、按 Agent 做小模型 routing、并行独立任务、early stop 和 budgets。先有 eval baseline 再优化，避免用更低成本换来不可见的质量回退。
 
 ### Q25：不同 Agent 怎样选模型？
 
-**答：** 强模型建 baseline，再逐 stage 替换。抽取/分类可小模型，机理候选和关键 Critic 用 reasoning model；比较 stage-level quality-latency-cost Pareto frontier。
+**答：** 强模型建立 baseline，再逐 Agent 替换。抽取、分类和格式转换可尝试小模型，复杂多步 reasoning 与关键 Critic 使用更强模型；比较 stage-level quality-latency-cost Pareto frontier，而不是所有 Agent 固定同一模型。
 
 ### Q26：SSE、trace、event、checkpoint 区别？
 
@@ -787,19 +852,17 @@ Agent Evaluation 同时看 Outcome 和 Trajectory。前者是最终结论/环境
 1. `sensecllm.cli` 创建 `HarnessRunner`。
 2. Agent factory 按 profile 组装 DAG。
 3. `create_run()` 生成 RunState/checkpoint。
-4. `execute()` 检查 budget/dependency/cancel。
-5. Stage subprocess adapter 启动独立 worker。
-6. Pipeline adapter 将 stage 名映射到五个领域执行阶段。
-7. Step1 生成 sensor facts。
-8. CaseRecall 读历史 case。
-9. Step2 调 RAG、构图、生成候选、约束搜索。
-10. CaseRefinement 重排 case。
-11. Step3 生成 vulnerabilities。
-12. Critic rule -> DeepSeek/HITL。
-13. Step4 编译实验计划。
-14. Step5 生成防御/report。
-15. Supervisor 发现 artifacts、写 Memory、完成 checkpoint。
-16. API/SSE/UI 读 events/checkpoint；report chat 读 run artifacts。
+4. `execute()` 进入 Supervisor 主循环，检查 budget/dependency/cancel。
+5. `_execute_agent()` 把 StageRecord 标为 RUNNING，保存 checkpoint 并发出 event。
+6. Supervisor 构造 `AgentContext`，调用当前 Agent 的 `execute()`。
+7. LLM/domain Agent 通过 subprocess runtime 执行；Memory Agent 直接查询 store；Critic 执行规则和条件式模型调用。
+8. Agent 通过 structured artifact 交付结果，Supervisor 更新 trace、usage 和 StageRecord。
+9. transient/timeout 进入指数退避重试，permanent failure 终止当前 run。
+10. Critic decision 触发 approve/revise/reject/HITL 路由；human revise 会重置 Critic stage。
+11. 后续 Agent 读取已完成 artifacts，不重放之前的完整 conversation。
+12. 全部完成后 Supervisor 发现 artifacts、写 Episodic Memory、保存最终 checkpoint。
+13. API/SSE/UI 读取 events/checkpoint；report chat 使用隔离的 Conversation Memory。
+14. 最后切换 `single_agent`、`no_memory`、`no_critic` profile 对比 trajectory。
 
 亲自执行：
 
@@ -815,7 +878,7 @@ tail -f runs/<run_id>/events.jsonl
 tail -f runs/<run_id>/usage.jsonl
 ```
 
-逐个打开 `checkpoint.json`、`step2_mechanism_paths.json`、`critic_review.json` 和 `report.md`，说明每个字段由谁产生、谁消费、失败后如何恢复。
+重点打开 `checkpoint.json`、`events.jsonl`、`traces.jsonl`、`usage.jsonl` 和 `critic_review.json`，说明一次 Agent attempt 如何开始、传递上下文、完成、失败、重试或等待人工。
 
 ---
 
@@ -827,7 +890,7 @@ tail -f runs/<run_id>/usage.jsonl
 
 ### 算法关键词
 
-`hybrid retrieval`、`weighted RRF`、`reranker`、`beam/frontier graph search`、`three-valued constraints`、`verification-aware memory ranking`。
+`bounded autonomy`、`LLM proposes/code disposes`、`retrieve-refine`、`structured generation`、`evaluator-router`、`model-on-exception`。
 
 ### 工程关键词
 
@@ -847,4 +910,4 @@ tail -f runs/<run_id>/usage.jsonl
 
 ### 推荐结尾
 
-> 这个项目目前最完整的是 Harness 工程闭环和证据边界，最需要继续补的是专家 benchmark 与分布式执行。我下一步不会优先再堆 Agent 数量，而是先把 retrieval、path validity、vulnerability 和 physical verification 的回归集做扎实，再用评测决定哪些 Harness 组件真正 load-bearing。
+> 这个项目目前最完整的是 Agent contract、状态恢复、artifact handoff、Memory、Critic/HITL 和 observability 组成的 Harness 工程闭环。下一步不会优先继续堆 Agent 数量，而是先补 multi-trial Agent regression suite 和分布式 durable execution，再用评测决定哪些 orchestration 组件真正 load-bearing。
