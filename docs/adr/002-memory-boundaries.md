@@ -1,11 +1,8 @@
-# ADR 002: Separate episodic memory from literature RAG
+# ADR 002：将 Episodic Memory 与论文 RAG 分离
 
-- Status: Accepted
-- Context: previous device cases are useful priors but cannot prove facts about
-  a new target device.
-- Decision: store cases and physical validation outcomes in SQLite; use the
-  paper RAG exclusively for literature evidence; label recalled cases as
-  non-evidentiary priors.
-- Consequences: confirmation/rejection signals improve ranking without leaking
-  historical claims into target evidence. The two stores have independent
-  lifecycle and evaluation metrics.
+- 状态：已接受
+- 背景：历史设备案例可以作为有用的 prior，但不能证明新目标设备的事实。
+- 决策：使用 SQLite 保存案例和物理验证结果；论文 RAG 只提供文献证据；召回的案例
+  明确标记为非证据性 prior。
+- 影响：confirmed/rejected 信号可以改进排序，同时避免把历史结论泄漏到目标设备证据中。
+  两个存储具有独立的生命周期和评测指标。

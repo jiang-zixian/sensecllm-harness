@@ -1,25 +1,23 @@
-# Threat model
+# 威胁模型
 
-## Assets and trust boundaries
+## 资产与信任边界
 
-Assets are provider credentials, uploaded documents, unpublished device facts,
-run artifacts, episodic cases, and model/RAG provenance. Trust boundaries exist
-at the upload API, model gateways, RAG service, domain subprocess, SQLite store,
-and artifact download endpoint.
+需要保护的资产包括 Provider 凭据、上传文档、未公开设备事实、run artifacts、历史案例
+和 model/RAG provenance。信任边界位于 upload API、model gateway、RAG service、
+领域 subprocess、SQLite store 和 artifact download endpoint。
 
-## Main threats and controls
+## 主要威胁与控制措施
 
-| Threat | Control | Residual risk |
+| 威胁 | 控制措施 | 剩余风险 |
 |---|---|---|
-| Credential disclosure | environment-only secrets, redacted HTTP failures, secret scan | keys formerly shared must be rotated manually |
-| Path traversal / arbitrary artifact read | hex run IDs, allowlisted upload extensions, resolved-path containment | local operators still control the host |
-| Oversized or malicious upload | 15 MiB limit, isolated parsing subprocess, timeout | PDF parser vulnerabilities require dependency updates/sandboxing |
-| Prompt injection in papers/device docs | artifacts treated as data; evidence-only RAG prompt; deterministic checks | models can still follow adversarial content |
-| Cross-run contamination | run-scoped paths and fresh domain subprocesses | shared provider/RAG quotas remain global |
-| Historical-case leakage | episodic results labelled priors and kept outside target evidence | poor prompts may over-weight priors |
-| Unsupported security claims | accepted-path linkage, Critic, citations, human gate | evaluation depends on expert labels |
-| Denial of service / cost exhaustion | time, attempt, token accounting, cancellation, file limit | hard token rejection requires provider streaming/token hooks |
+| 凭据泄露 | 仅环境变量注入、HTTP failure 脱敏、secret scan | 曾分享的 key 仍需人工轮换 |
+| Path traversal / 任意 artifact 读取 | 十六进制 run ID、上传扩展名 allowlist、resolved-path containment | 本地 operator 仍控制宿主机 |
+| 超大或恶意上传 | 15 MiB 限制、隔离的解析 subprocess、timeout | PDF parser 漏洞仍需升级依赖或 sandbox |
+| 论文/设备文档 Prompt Injection | 将 artifact 视为数据、evidence-only RAG prompt、deterministic check | 模型仍可能遵循对抗内容 |
+| 跨 run 污染 | run-scoped path 和新的领域 subprocess | Provider/RAG quota 仍为全局共享 |
+| 历史案例泄漏 | 将 episodic result 标记为 prior，并与目标证据隔离 | 不良 prompt 可能过度依赖 prior |
+| 无依据的安全结论 | accepted-path linkage、Critic、citation、human gate | 评测质量依赖专家标签 |
+| DoS / 成本耗尽 | 时间与 attempt 限制、token accounting、cancel、文件限制 | 强制 token 拒绝仍需 Provider streaming/token hook |
 
-The API is intended for a trusted local demo. Internet exposure additionally
-requires authentication, TLS, per-user authorization, rate limits, malware
-scanning, and a hardened container profile.
+该 API 主要面向可信的本地演示环境。暴露到互联网前还需要 authentication、TLS、
+per-user authorization、rate limit、malware scanning 和加固后的 container profile。

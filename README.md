@@ -1,34 +1,29 @@
 # SenseCLLM Harness
 
-Physics-constrained multi-agent harness for sensor and cyber-physical security
-analysis. It combines mechanism graph search, constraint reasoning, paper RAG,
-resumable Agent execution, and historical case memory in one system.
+面向传感器与信息物理系统安全分析的物理约束多 Agent Harness。系统将机理图搜索、
+约束推理、论文 RAG、可恢复 Agent 执行和历史案例记忆整合为统一架构。
 
 ![SenseCLLM Harness demo](docs/assets/sensecllm-demo.gif)
 
-## What is implemented
+## 已实现能力
 
-- Five domain-analysis stages plus Case Recall/Refinement and an independent Critic Agent
-- Supervisor with typed run/stage state
-- JSON checkpoints, resume, and JSONL lifecycle events
-- Subprocess isolation and per-Agent stdout/stderr logs
-- SQLite Episodic Memory for devices, paths, vulnerabilities, experiments, and
-  physical verification outcomes
-- Conditional ChatAnywhere DeepSeek review with revise/reject/human routing
-- Evidence-backed report chat and verification-aware episodic ranking
-- CLI, FastAPI/SSE, browser dashboard, run comparison, metrics, and traces
-- Environment-only secret configuration
+- 五个领域分析 Agent、案例召回/精排 Agent，以及独立的 Critic Agent
+- 带类型化 run/stage 状态的 Supervisor
+- JSON checkpoint、断点恢复和 JSONL 生命周期事件
+- subprocess 隔离，以及每个 Agent 独立的 stdout/stderr 日志
+- 基于 SQLite 的 Episodic Memory，保存设备、路径、漏洞、实验与物理验证结果
+- 通过 ChatAnywhere DeepSeek 按需复核，并支持 revise/reject/human 路由
+- 基于证据的报告问答，以及考虑验证反馈的历史案例排序
+- CLI、FastAPI/SSE、浏览器仪表盘、运行对比、指标和 trace
+- 仅通过本地环境配置敏感凭据
 
-See [docs/architecture.md](docs/architecture.md) for the design and roadmap.
-For a Chinese code-level architecture walkthrough, per-Agent implementation
-guide, and 30 project-specific interview questions, see
-[docs/interview-guide.md](docs/interview-guide.md).
-Measured smoke results and their limitations are documented in
-[docs/evaluation-results.md](docs/evaluation-results.md).
-Provider-key handoff is documented in
-[docs/credential-rotation.md](docs/credential-rotation.md).
+系统设计见[架构文档](docs/architecture.md)，完整实施清单见 [TODO](TODO.md)。
+如果需要学习代码级 Agent 架构、逐 Agent 实现和 30 道项目面试题，请阅读
+[面试学习手册](docs/interview-guide.md)。实测 smoke test 结果及其适用边界见
+[评测结果](docs/evaluation-results.md)，Provider key 的安全处理方式见
+[凭据轮换手册](docs/credential-rotation.md)。
 
-## Setup
+## 安装与配置
 
 ```bash
 python -m venv .venv
@@ -37,76 +32,75 @@ pip install -e '.[api,legacy,rag,dev]'
 cp .env.example .env
 ```
 
-Fill `CHATANYWHERE_API_KEY` and `SILICONFLOW_API_KEY` in `.env` once. The CLI,
-API, domain workers, and Sensor RAG load this ignored file automatically;
-explicit process environment variables still take precedence. Then start RAG:
+只需在 `.env` 中填写一次 `CHATANYWHERE_API_KEY` 和 `SILICONFLOW_API_KEY`。
+CLI、API、领域 worker 和 Sensor RAG 都会自动加载这个被 Git 忽略的文件；
+如果进程环境中显式设置了同名变量，则以进程环境为准。然后启动 RAG：
 
 ```bash
 python -m sensor_rag serve
 ```
 
-The default Harness and Critic model is `deepseek-v3.2`; change either value in
-`.env` when needed. Never force-add `.env` to Git.
+Harness 和 Critic 的默认模型都是 `deepseek-v3.2`，需要时可在 `.env` 中修改。
+不要使用 `git add -f` 将 `.env` 强制提交到 Git。
 
-Run an analysis:
+运行一次分析：
 
 ```bash
 sensecllm analyze /absolute/path/to/datasheet.pdf --model deepseek-v3.2
 
-# reproducible Agent ablations
+# 可复现的 Agent 消融实验
 sensecllm analyze examples/demo_sensor.md --profile single_agent
 sensecllm analyze examples/demo_sensor.md --profile no_memory
 sensecllm analyze examples/demo_sensor.md --profile no_critic
 ```
 
-Resume an interrupted run:
+恢复中断的运行：
 
 ```bash
 sensecllm resume runs/<run-id>/checkpoint.json
 sensecllm recover-stale --older-than-seconds 300
 ```
 
-Search historical cases and record a physical verification outcome:
+搜索历史案例并记录物理验证结果：
 
 ```bash
 sensecllm memory-search microphone --mechanism nonlinearity
 sensecllm record-verification <case-id> "Ultrasonic command injection" confirmed
 ```
 
-Optional API:
+可选的 API 服务：
 
 ```bash
 uvicorn sensecllm.api.app:app --reload
 ```
 
-Open `http://127.0.0.1:8000/` for upload, live Agent status, mechanism paths,
-memory feedback, grounded report chat, and run comparison.
+打开 `http://127.0.0.1:8000/`，可使用文件上传、实时 Agent 状态、机理路径、
+Memory 反馈、基于证据的报告问答和运行对比功能。
 
-Useful endpoints:
+常用接口：
 
-- `POST /v1/runs` — start an analysis
-- `GET /v1/runs/{run_id}` — inspect checkpointed state
-- `GET /v1/runs/{run_id}/events` — stream lifecycle events over SSE
-- `POST /v1/runs/{run_id}/cancel` — terminate a running Agent subprocess
-- `POST /v1/runs/{run_id}/decision` — approve, revise, or reject a gated run
-- `POST /v1/runs/{run_id}/chat` — ask a citation-constrained report question
-- `GET /v1/runs/{run_id}/artifacts/{name}` — download an output or Agent log
-- `GET /v1/memory/cases` — search episodic device cases
-- `POST /v1/memory/cases/{case_id}/verification` — record a physical result
-- `GET /metrics` — Prometheus-compatible local metrics
+- `POST /v1/runs` — 启动分析
+- `GET /v1/runs/{run_id}` — 查看 checkpoint 状态
+- `GET /v1/runs/{run_id}/events` — 通过 SSE 流式获取生命周期事件
+- `POST /v1/runs/{run_id}/cancel` — 终止正在运行的 Agent subprocess
+- `POST /v1/runs/{run_id}/decision` — 对 gated run 执行 approve、revise 或 reject
+- `POST /v1/runs/{run_id}/chat` — 针对报告发起带引用约束的问答
+- `GET /v1/runs/{run_id}/artifacts/{name}` — 下载输出或 Agent 日志
+- `GET /v1/memory/cases` — 搜索 Episodic Memory 中的设备案例
+- `POST /v1/memory/cases/{case_id}/verification` — 记录物理验证结果
+- `GET /metrics` — 获取 Prometheus 兼容的本地指标
 
-The complete remaining implementation plan is in [TODO.md](TODO.md).
+完整实施清单见 [TODO.md](TODO.md)。
 
-## Docker demo foundation
+## Docker 演示环境
 
-After configuring provider keys, build and start the API and RAG service:
+配置 Provider key 后，构建并启动 API 与 RAG 服务：
 
 ```bash
 docker compose up --build
 ```
 
-The included `examples/demo_sensor.md` is fictional and redistributable. Start
-an analysis from the host with:
+仓库中的 `examples/demo_sensor.md` 是虚构且可再分发的示例。可从宿主机启动分析：
 
 ```bash
 curl -X POST http://127.0.0.1:8000/v1/runs \
@@ -114,12 +108,11 @@ curl -X POST http://127.0.0.1:8000/v1/runs \
   -d '{"input_path":"/app/examples/demo_sensor.md","model":"deepseek-v3.2"}'
 ```
 
-The RAG index must be built before its first complete retrieval run. The Docker
-volume preserves the resulting `.rag_index` between restarts.
+首次执行完整检索前必须先构建 RAG 索引。Docker volume 会在服务重启之间保留
+生成的 `.rag_index`。
 
-## Security note
+## 安全说明
 
-The source uses only the credentials it needs, supplied through environment
-variables. Obsolete key fields were removed. Any credential
-that was previously committed or shared should still be rotated by its owner.
-See [the threat model](docs/threat-model.md) before exposing the local demo API.
+源码只使用系统运行所需的凭据，并通过环境变量提供。已经删除废弃的 key 字段。
+任何曾经提交或分享过的凭据仍应由所有者主动轮换。在将本地演示 API 暴露到网络前，
+请先阅读[威胁模型](docs/threat-model.md)。
