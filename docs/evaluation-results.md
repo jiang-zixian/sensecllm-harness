@@ -48,9 +48,9 @@ The low vulnerability agreement reflects highly variable naming/content against
 the pseudo-reference and is retained rather than hidden. A publishable result
 requires immutable labels from domain experts.
 
-## Existing RAG smoke audit
+## RAG smoke audit
 
-The existing RAG indexed 20 real PDFs into 745 chunks with zero indexing
+The RAG service indexed 20 real PDFs into 745 chunks with zero indexing
 failures. A one-query title-reviewed relevance audit measured Recall@5 1.000,
 MRR 1.000, and NDCG@5 0.8921. This validates retrieval/evaluation plumbing only;
 the judged pool is too small for a research claim.

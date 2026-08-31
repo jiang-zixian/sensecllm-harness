@@ -10,7 +10,7 @@
 
 ## 0. 先记住这三句话
 
-1. **SenseCLLM Harness 是一个 physics-constrained sensor-security Agent Harness**：它没有重写原有领域算法，而是在旧的传感器安全分析流水线外增加了多 Agent 编排、状态恢复、三类 Memory、Critic、评测和可观测性。
+1. **SenseCLLM Harness 是一个 physics-constrained sensor-security Agent Harness**：它将传感器文档理解、论文检索、物理机理图搜索、漏洞分析、实验规划和防御生成组织为完整的多 Agent 系统，并具备状态恢复、三类 Memory、Critic、评测和可观测性。
 2. **系统的控制流主要是确定性的 workflow，局部推理由 LLM 驱动**：Supervisor 决定 Agent 顺序，LLM 负责文档抽取、机理候选生成、漏洞分析和条件式 Critic；因此面试时应称为“multi-Agent workflow / agentic system”，不要夸大成完全自主规划系统。
 3. **项目最重要的设计原则是证据分层**：论文 RAG 是外部证据，目标设备 datasheet 是目标事实，Episodic Memory 只是历史先验；三者不能混为一谈。
 
@@ -31,7 +31,7 @@
 关键源码入口：
 
 - Supervisor：[`src/sensecllm/harness/runner.py`](../src/sensecllm/harness/runner.py)
-- Agent 装配：[`src/sensecllm/agents/legacy_agents.py`](../src/sensecllm/agents/legacy_agents.py)
+- Agent 装配：[Agent modules](../src/sensecllm/agents)
 - 运行状态：[`src/sensecllm/harness/state.py`](../src/sensecllm/harness/state.py)
 - Critic：[`src/sensecllm/agents/critic_agent.py`](../src/sensecllm/agents/critic_agent.py)
 - Episodic Memory：[`src/sensecllm/memory/episodic.py`](../src/sensecllm/memory/episodic.py)
@@ -44,7 +44,7 @@
 
 ### 2.1 30 秒版本
 
-> 我把原来一个依赖全局变量、线性执行的传感器安全分析原型，重构成了一个可恢复的 multi-Agent Harness。系统用 Supervisor 顺序编排 8 个职责明确的 Agent，用论文 RAG 和物理约束图生成可解释的攻击机理路径，用 SQLite 保存历史设备案例和物理验证结果，并用 deterministic-first Critic 做一致性校验和人工审批路由。工程上支持 subprocess isolation、checkpoint/resume、retry/cancel、SSE、token budget、trace、FastAPI 和评测消融。核心特点不是简单串联 LLM，而是把目标证据、论文证据和历史先验严格分开。
+> 我设计并实现了一个面向传感器安全分析的可恢复 multi-Agent Harness。系统用 Supervisor 顺序编排 8 个职责明确的 Agent，用论文 RAG 和物理约束图生成可解释的攻击机理路径，用 SQLite 保存历史设备案例和物理验证结果，并用 deterministic-first Critic 做一致性校验和人工审批路由。工程上支持 subprocess isolation、checkpoint/resume、retry/cancel、SSE、token budget、trace、FastAPI 和评测消融。核心特点不是简单串联 LLM，而是把目标设备事实、论文证据和历史先验严格分开。
 
 ### 2.2 两分钟版本
 
@@ -52,15 +52,15 @@
 >
 > 第一层是领域核心。Document 阶段抽取传感器类型、组件和参数；Mechanism 阶段先通过 hybrid RAG 检索论文，再由 LLM 生成候选物理转换边，最后经过类型、证据和参数约束检查做 beam-style graph search；Vulnerability、Experiment 和 Defense 阶段把被接受的机理路径逐步转成漏洞假设、可执行验证参数和针对具体路径边的防御。
 >
-> 第二层是 Agent Harness。一个自研 Supervisor 管理 typed RunState 和 StageRecord，每个旧阶段都放在独立 subprocess 中，避免原型里的 module globals 在并发请求之间串数据。每个 Agent 完成后原子写 checkpoint，并追加 events、trace、usage 和 artifact，因此运行中断后可以从未完成阶段恢复，还支持 timeout、指数退避重试、取消、token/attempt/time/cost budget。
+> 第二层是 Agent Harness。一个自研 Supervisor 管理 typed RunState 和 StageRecord，每个领域阶段都运行在独立 subprocess 中，将 module-level runtime state 隔离在单次阶段执行范围内，避免并发运行相互污染。每个 Agent 完成后原子写 checkpoint，并追加 events、trace、usage 和 artifact，因此运行中断后可以从未完成阶段恢复，还支持 timeout、指数退避重试、取消、token/attempt/time/cost budget。
 >
 > 第三层是可靠性。CaseRecall 和 CaseRefinement 使用 SQLite Episodic Memory，但历史案例只做 prior；Critic 先在本地检查漏洞的 mechanism/component 是否来自 accepted path，只有异常时才调用 DeepSeek，之后路由到 approve、revise、reject 或 human review。最后我做了 single-agent、no-memory、no-RAG、no-constraint、no-Critic 等消融，并明确把 synthetic smoke test 和专家标注 benchmark 区分开。
 
 ### 2.3 STAR 版本
 
-- **Situation**：原型是线性脚本，依赖全局配置和临时文件，凭据与机器路径耦合，难以并发、恢复、评测和演示。
-- **Task**：在不重写物理机理核心和现有 RAG 的前提下，把它改造成简历可讲、可运行、可评测的 Agent Harness。
-- **Action**：增加 Agent 边界、Supervisor、subprocess isolation、typed checkpoint、Memory、Critic/HITL、observability、API/UI 和 benchmark schema。
+- **Situation**：传感器安全分析同时涉及非结构化文档、论文证据、物理约束和多阶段推理，需要解决并发隔离、失败恢复、证据可信度与可评测性问题。
+- **Task**：设计一个既保留领域推理深度，又具备可靠运行时、Memory、质量控制和演示能力的 Agent Harness。
+- **Action**：实现 Agent 边界、Supervisor、subprocess isolation、typed checkpoint、Memory、Critic/HITL、observability、API/UI 和 benchmark schema。
 - **Result**：真实 DeepSeek E2E smoke run 用时 320.975 秒、12 次模型调用、127,123 accounted tokens；RAG 索引 20 篇 PDF、745 chunks、0 indexing failures。注意这些是工程验证，不是泛化准确率声明。
 
 ---
@@ -95,7 +95,7 @@ Harness 并不要求控制流全部由 LLM 决定。它解决的是：
 这不是“重复造轮子”，而是一个项目选择：
 
 - 自研状态机使 checkpoint、重试、预算、HITL 和 subprocess 语义完全显式，面试时可以讲清底层机制；
-- 旧领域代码依赖临时文件和 module globals，首先需要的是 process boundary，而不是框架 graph node；
+- 领域阶段使用 run-scoped artifacts 和部分 module-level runtime state，process boundary 比框架 graph node 更直接地提供并发隔离；
 - 当前 DAG 小且稳定，自研实现的复杂度可控；
 - 代价是缺少成熟框架的 distributed persistence、可视化调试和生态集成。
 
@@ -142,7 +142,7 @@ flowchart TB
 1. **Interface Layer**：CLI、FastAPI、SSE、Web dashboard。
 2. **Harness Runtime Layer**：Supervisor、RunState、checkpoint、failure policy、budget。
 3. **Agent Layer**：8 个专业 Agent 和 single-agent baseline。
-4. **Domain Layer**：旧五阶段 pipeline、physics-constrained graph search、RAG。
+4. **Domain Layer**：五阶段领域 pipeline、physics-constrained graph search、RAG。
 5. **Data/Observability Layer**：run artifacts、SQLite、events、traces、usage、metrics。
 
 ### 4.2 一次运行的数据目录
@@ -281,18 +281,13 @@ Checkpoint 采用 `tmp file -> replace`：先写 `checkpoint.json.tmp`，再原�
 
 ## 6. 为什么要用 subprocess isolation
 
-旧 pipeline 使用 module-level configuration、固定临时文件和动态 `PYTHONPATH`。如果把两个 API 请求放在同一个 Python process 中直接调用，可能出现全局路径互相影响、临时文件覆盖、import/cache 污染，以及无法可靠终止的问题。
+领域 pipeline 的各阶段会使用 module-level configuration、临时 artifacts 和动态 `PYTHONPATH`。如果让多个 run 在同一个 Python process 中直接执行，可能出现全局路径互相影响、临时文件覆盖、import/cache 状态交叉，以及无法可靠终止的问题。
 
-`LegacySubprocessAdapter` 为每个领域 stage 启动：
-
-```text
-python -m sensecllm.legacy_worker <stage>
-  --project-root ... --input ... --report ... --model ...
-```
+运行时适配器为每个领域 stage 启动独立 worker process，并以命令行参数传入 stage、project root、input、report 和 model。worker 只负责执行当前 stage，Supervisor 负责生命周期、状态和错误处理。
 
 并注入 run-scoped usage file 和 trace ID，把 stdout/stderr 合并写入独立 log。
 
-优点是 process-level fault/config isolation、可 terminate/kill、保留旧核心并降低重构风险；代价是进程启动开销、文件 schema 管理，以及仍然只适合单机。生产化可以换成 Celery/RQ/Kubernetes Jobs，但保持 `run_stage(stage, model)` adapter 接口。
+优点是 process-level fault/config isolation、可 terminate/kill，并且让领域计算与 Harness supervision 保持清晰边界；代价是进程启动开销、文件 schema 管理，以及仍然只适合单机。生产化可以换成 Celery/RQ/Kubernetes Jobs，但保持 `run_stage(stage, model)` adapter 接口。
 
 ---
 
@@ -300,7 +295,7 @@ python -m sensecllm.legacy_worker <stage>
 
 ### 7.1 Agent 装配与依赖
 
-`build_legacy_agents(profile="full")` 生成：
+Agent factory 在 `profile="full"` 时生成：
 
 ```text
 document -> case_recall -> mechanism -> case_refinement
@@ -315,8 +310,8 @@ Profile 包括 `full`、`no_memory`、`no_critic` 和 `single_agent`，用于可
 
 | 项目 | 内容 |
 |---|---|
-| Harness 实现 | `LegacyStageAgent("document")` |
-| 旧核心 | `step1_extract.run_step_1()` |
+| Agent 执行层 | Document stage adapter |
+| 领域实现 | `step1_extract.run_step_1()` |
 | 输入 | PDF/Markdown datasheet、model |
 | 输出 | `step1_output.json`、sensor info、`rag_input` |
 | 作用 | 抽取目标设备组件、参数、传感器类型与可追溯源信息 |
@@ -327,14 +322,14 @@ Profile 包括 `full`、`no_memory`、`no_critic` 和 `single_agent`，用于可
 
 ### 7.3 CaseRecallAgent
 
-这是第一个新增的 Memory Agent，不调用 LLM：读取 Step1；提取 `device_model`/`sensor_type`；分别搜索 SQLite；按 case ID 去重并取前 5；写 `episodic_case_recall.json`。初次召回只使用设备信息，因为当前机理路径尚未生成。
+这是第一阶段 Memory Agent，不调用 LLM：读取 Step1；提取 `device_model`/`sensor_type`；分别搜索 SQLite；按 case ID 去重并取前 5；写 `episodic_case_recall.json`。初次召回只使用设备信息，因为当前机理路径尚未生成。
 
 ### 7.4 MechanismAgent
 
 | 项目 | 内容 |
 |---|---|
-| Harness 实现 | `LegacyStageAgent("mechanism")` |
-| 旧核心入口 | `step2_analyze.run_step_2()` |
+| Agent 执行层 | Mechanism stage adapter |
+| 领域实现入口 | `step2_analyze.run_step_2()` |
 | 输入 | Step1 sensor facts、论文 RAG memo、物理图/算子注册表 |
 | 输出 | accepted/unresolved/rejected mechanism paths |
 | 主要算法 | LLM candidate generation + physics-constrained graph search |
@@ -383,13 +378,13 @@ memory_score =
 
 | 项目 | 内容 |
 |---|---|
-| Harness 实现 | `LegacyStageAgent("vulnerability")` |
-| 旧核心 | `step3_detect.run_step_3()` |
+| Agent 执行层 | Vulnerability stage adapter |
+| 领域实现 | `step3_detect.run_step_3()` |
 | 输入 | accepted mechanism paths、sensor facts |
 | 输出 | `step3_vulnerability_items.json` |
 | 作用 | 把物理可达路径转成漏洞假设和可利用条件 |
 
-它应该把每个 vulnerability 绑定到 mechanism、source component、path ID 和 exploitable parameters。当前主流程使用一次 forward reasoning classification，旧 verifier 保留但默认不调用，避免与独立 Critic 重复。
+它应该把每个 vulnerability 绑定到 mechanism、source component、path ID 和 exploitable parameters。当前执行路径使用一次 forward reasoning classification；verifier 组件可用于专项实验，但主流程由独立 Critic 统一承担复核职责，避免重复审查。
 
 ### 7.7 CriticAgent
 
@@ -413,8 +408,8 @@ deterministic review 通过就不调用模型；否则调用 DeepSeek 独立审�
 
 | 项目 | 内容 |
 |---|---|
-| Harness 实现 | `LegacyStageAgent("experiment")` |
-| 旧核心 | `step4_verify_per_vulnerability.run_step_4()` |
+| Agent 执行层 | Experiment stage adapter |
+| 领域实现 | `step4_verify_per_vulnerability.run_step_4()` |
 | 输入 | Critic 通过的漏洞、supporting path、参数约束 |
 | 输出 | verification plans、constraint traces |
 | 作用 | 将漏洞假设编译成可验证的实验参数范围 |
@@ -425,8 +420,8 @@ deterministic review 通过就不调用模型；否则调用 DeepSeek 独立审�
 
 | 项目 | 内容 |
 |---|---|
-| Harness 实现 | `LegacyStageAgent("defense")` |
-| 旧核心 | `step5_defense.run_step_5()` |
+| Agent 执行层 | Defense stage adapter |
+| 领域实现 | `step5_defense.run_step_5()` |
 | 输入 | 漏洞、实验方案、物理路径 |
 | 输出 | 防御建议与最终 report |
 | 作用 | 将 mitigation 绑定到具体耦合路径或 graph edge |
@@ -435,7 +430,7 @@ deterministic review 通过就不调用模型；否则调用 DeepSeek 独立审�
 
 ### 7.10 SingleAgentBaseline
 
-它把旧五阶段放在一个 Agent attempt 中顺序执行。它并不等于“只调用一次 LLM”，而是 orchestration boundary 变成一个大 Agent。因此比较结果只能说明当前 profile 的运行差异，不能直接证明多 Agent 一定提高准确率。
+它把五个领域阶段放在一个 Agent attempt 中顺序执行。它并不等于“只调用一次 LLM”，而是 orchestration boundary 变成一个大 Agent。因此比较结果只能说明不同 profile 的运行差异，不能直接证明多 Agent 一定提高准确率。
 
 ### 7.11 ReportChatService
 
@@ -646,7 +641,7 @@ Agent Evaluation 同时看 Outcome 和 Trajectory。前者是最终结论/环境
 
 ### Q7：如何避免并发污染？
 
-**答：** UUID run directory + 每旧阶段独立 subprocess + run-scoped input/report/usage/logs，旧 module globals 只存在于子进程生命周期。
+**答：** UUID run directory + 每个领域阶段独立 subprocess + run-scoped input/report/usage/logs，module-level runtime state 只存在于对应子进程生命周期。
 
 ### Q8：Memory 存什么，如何召回？
 
@@ -790,11 +785,11 @@ Agent Evaluation 同时看 Outcome 和 Trajectory。前者是最终结论/环境
 按一次 run 的调用链阅读：
 
 1. `sensecllm.cli` 创建 `HarnessRunner`。
-2. `build_legacy_agents()` 按 profile 组装 DAG。
+2. Agent factory 按 profile 组装 DAG。
 3. `create_run()` 生成 RunState/checkpoint。
 4. `execute()` 检查 budget/dependency/cancel。
-5. `LegacySubprocessAdapter` 启动 `legacy_worker`。
-6. `LegacyPipelineAdapter` 映射旧五阶段。
+5. Stage subprocess adapter 启动独立 worker。
+6. Pipeline adapter 将 stage 名映射到五个领域执行阶段。
 7. Step1 生成 sensor facts。
 8. CaseRecall 读历史 case。
 9. Step2 调 RAG、构图、生成候选、约束搜索。

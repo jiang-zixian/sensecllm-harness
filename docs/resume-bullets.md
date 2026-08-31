@@ -2,12 +2,12 @@
 
 Use one or two bullets and keep the scope qualifier when discussing results.
 
-- Refactored a sensor-security research pipeline into an 8-Agent Harness with
+- Designed and implemented an 8-Agent sensor-security Harness with
   subprocess isolation, JSON checkpoint/resume, SSE, retries/cancellation,
   token budgets, structured traces, SQLite episodic memory, and Critic-driven
   revise/reject/human-review routing; completed a real DeepSeek E2E smoke run in
   320.975 s with 12 model calls and 127,123 accounted tokens.
-- Integrated the retained hybrid paper RAG without duplicating its core,
+- Built a unified hybrid paper RAG integration with a single retrieval service,
   indexing 20 PDFs into 745 chunks with 0 indexing failures; a one-query,
   title-reviewed plumbing audit measured Recall@5 1.00, MRR 1.00, and NDCG@5
   0.892 (explicitly not an expert accuracy benchmark).

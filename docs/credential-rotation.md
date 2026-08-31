@@ -17,7 +17,7 @@ if that risk decision changes.
    SILICONFLOW_API_KEY=...
    ```
 
-3. Open a fresh terminal so no legacy exported value is reused, then verify the
+3. Open a fresh terminal so no previously exported value is reused, then verify the
    replacement keys independently:
 
    ```bash

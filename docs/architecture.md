@@ -3,15 +3,15 @@
 ## Positioning
 
 SenseCLLM Harness is a physics-constrained multi-agent system for analysing
-sensor and cyber-physical security risks. The existing mechanism graph search
-and Dify-compatible/local RAG remain unchanged. The refactor adds an agent
-runtime around those domain components.
+sensor and cyber-physical security risks. It integrates mechanism graph search,
+a Dify-compatible/local RAG service, episodic memory, and a resumable Agent
+runtime as one coherent architecture.
 
 ## Runtime flow
 
 1. `DocumentAgent` extracts target-device facts and source evidence.
 2. `CaseRecallAgent` retrieves similar episodes as explicitly non-evidentiary priors.
-3. `MechanismAgent` uses the existing RAG client and physics-constrained graph search.
+3. `MechanismAgent` uses the paper RAG client and physics-constrained graph search.
 4. `VulnerabilityAgent` turns accepted paths into grounded vulnerability hypotheses.
 5. `CriticAgent` checks path consistency and conditionally escalates to DeepSeek.
 6. `ExperimentAgent` derives physical verification parameters from path constraints.
@@ -34,9 +34,9 @@ flowchart LR
   EM -. prior only .-> R
 ```
 
-Every unchanged legacy stage runs in a separate subprocess. This isolates the
-legacy modules' global configuration and makes concurrent API runs safe while
-preserving the existing core implementation.
+Every domain stage runs in a separate subprocess. This isolates module-level
+runtime state, makes concurrent API runs safe, and keeps domain computation
+separate from Harness supervision.
 
 ## Memory
 
@@ -54,9 +54,9 @@ target-device evidence.
 
 ## RAG
 
-The existing RAG remains the single literature retrieval implementation. The
-Harness owns only its configuration, health checking, tracing, and provenance;
-it does not duplicate indexing or retrieval algorithms.
+The paper RAG is the system's single literature retrieval implementation. The
+Harness owns its configuration, health checking, tracing, and provenance while
+the RAG service owns indexing, hybrid retrieval, reranking, and evidence packing.
 
 ## Runtime and observability
 

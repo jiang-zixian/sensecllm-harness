@@ -1,14 +1,14 @@
 # SenseCLLM Harness
 
 Physics-constrained multi-agent harness for sensor and cyber-physical security
-analysis. It wraps the existing SenseCLLM mechanism graph, constraint reasoning,
-and RAG pipeline with resumable Agent execution and historical case memory.
+analysis. It combines mechanism graph search, constraint reasoning, paper RAG,
+resumable Agent execution, and historical case memory in one system.
 
 ![SenseCLLM Harness demo](docs/assets/sensecllm-demo.gif)
 
 ## What is implemented
 
-- Five unchanged domain stages plus Case Recall/Refinement and independent Critic Agents
+- Five domain-analysis stages plus Case Recall/Refinement and an independent Critic Agent
 - Supervisor with typed run/stage state
 - JSON checkpoints, resume, and JSONL lifecycle events
 - Subprocess isolation and per-Agent stdout/stderr logs
@@ -38,7 +38,7 @@ cp .env.example .env
 ```
 
 Fill `CHATANYWHERE_API_KEY` and `SILICONFLOW_API_KEY` in `.env` once. The CLI,
-API, legacy workers, and Sensor RAG load this ignored file automatically;
+API, domain workers, and Sensor RAG load this ignored file automatically;
 explicit process environment variables still take precedence. Then start RAG:
 
 ```bash
@@ -99,8 +99,7 @@ The complete remaining implementation plan is in [TODO.md](TODO.md).
 
 ## Docker demo foundation
 
-After exporting fresh provider keys, build and start the API and the existing
-RAG service:
+After configuring provider keys, build and start the API and RAG service:
 
 ```bash
 docker compose up --build
@@ -120,7 +119,7 @@ volume preserves the resulting `.rag_index` between restarts.
 
 ## Security note
 
-The retained source uses only the credentials it needs, supplied through
-environment variables. Unused legacy key fields were removed. Any credential
+The source uses only the credentials it needs, supplied through environment
+variables. Obsolete key fields were removed. Any credential
 that was previously committed or shared should still be rotated by its owner.
 See [the threat model](docs/threat-model.md) before exposing the local demo API.
