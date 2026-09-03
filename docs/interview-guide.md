@@ -4,7 +4,7 @@
 >
 > 适用岗位：大模型算法实习、LLM Application / Agent Engineer、RAG 算法、AI Infra 实习。
 >
-> 文档基于仓库 2026-08-25 的真实实现与实测结果；互联网趋势资料检索于 2026-08-25。
+> 文档基于仓库 2026-08-25 的真实实现、工程实测，以及论文 `SenSecLLM__NDSS2027.pdf` 中的正式实验结果；互联网趋势资料检索于 2026-08-25。
 >
 > **阅读重点：本文聚焦 Agent Harness 的实现。传感器安全只是任务载体，领域机理仅保留理解 Agent 输入输出所需的最小背景。**
 
@@ -61,7 +61,7 @@
 - **Situation**：传感器安全分析同时涉及非结构化文档、论文证据、物理约束和多阶段推理，需要解决并发隔离、失败恢复、证据可信度与可评测性问题。
 - **Task**：设计一个既保留领域推理深度，又具备可靠运行时、Memory、质量控制和演示能力的 Agent Harness。
 - **Action**：实现 Agent 边界、Supervisor、subprocess isolation、typed checkpoint、Memory、Critic/HITL、observability、API/UI 和 benchmark schema。
-- **Result**：真实 DeepSeek E2E smoke run 用时 320.975 秒、12 次模型调用、127,123 accounted tokens；RAG 索引 20 篇 PDF、745 chunks、0 indexing failures。注意这些是工程验证，不是泛化准确率声明。
+- **Result**：论文在 20 个商业传感器、14 个类别上评测 Harness：覆盖全部 57 个已知漏洞，漏洞覆盖率和原理分析准确率均为 100%，66 个“漏洞—原理”对的物理验证有效性为 90.15%，整体幻觉率为 11.71%；此外发现并物理验证了 9 个传感器级、2 个无人机系统级未知漏洞。工程侧真实 DeepSeek E2E smoke run 用时 320.975 秒，完成 12 次模型调用。
 
 ---
 
@@ -664,13 +664,54 @@ Web UI 支持上传、live Agent graph、path 状态、artifact/log、Memory fee
 
 Agent Evaluation 同时看 Outcome 和 Trajectory。前者是最终结论/环境状态，后者是 calls、tokens、retries、tools、citations 和中间路径。
 
-### 13.2 消融与结论边界
+### 13.2 论文正式实验设置
 
-支持 multi vs single、RAG/no-RAG、constraints/no-constraints、Critic/no-Critic、full/no-memory。当前每配置只跑一次，存在 sampling 和 provider load 噪声，只能称 observed operational difference，不能称统计显著提升。
+论文把完整 Harness 作为被测系统，实验设置如下：
 
-实测：Full run 320.975 s、12 calls、127,123 tokens、3 accepted paths；20 PDFs -> 745 chunks；pseudo-reference smoke 的 mean unsupported-claim rate 0.1266，vulnerability F1 只有 0.1667，低结果被保留。
+- **测试对象**：20 个商业传感器，覆盖 14 个类别，其中包含 phyFuzz 评测过的 13 个传感器；另在 DJI Mini 3 和 DJI Mavic 3 两个商业无人机上做系统级验证。
+- **Ground Truth**：汇总既有论文披露的漏洞，并补充人工全频段扫描结果；为避免数据泄漏，评测前从 Knowledge Substrate 中排除了这 20 个目标传感器的历史记录。
+- **主模型与参数**：Gemini-2.5-Pro，`temperature=0.1`；GPT-5.4-mini 只修复 malformed JSON，`temperature=0`；图搜索最大深度为 8。
+- **RAG 配置**：LanceDB + `BAAI/bge-m3` embedding + `BAAI/bge-reranker-v2-m3` reranker，`top-k=7`、rerank pool 24、threshold 0.18。
+- **消融模型**：DeepSeek-V3.2、GPT-5.4、Qwen3-Max、o4-mini、Gemini-2.5-Pro；比较 Base、Base+CoT、Base+CoT+RAG、完整 Harness（再加入 Graph Search）。
+- **四项指标**：Vulnerability Coverage、Principle Accuracy、Physical Verification Effectiveness、Hallucination Rate。
 
-真正可发表/上线还需要：独立专家 test set、多 trials 与 CI、retrieval/generation 分评、human calibration、capability/regression 分套件、failure slices 和 online shadow/physical validation。
+### 13.3 Harness 最终结果
+
+| 结果 | 数值 | 正确解读 |
+|---|---:|---|
+| 已知漏洞覆盖率 | **100%（57/57）** | 复现了论文与人工 sweep test 收集到的全部已知漏洞 |
+| 原理分析准确率 | **100%** | 对已验证条目正确推导了对应物理原理 |
+| 物理验证有效性 | **90.15%** | 66 个“漏洞—原理”对中，推荐参数直接触发 54 个；其余 12 个信号模态判断正确，经人工细化参数后也确认漏洞存在 |
+| 整体幻觉率 | **11.71%** | 三个 LLM 推理阶段的综合结果 |
+| Principle Analysis 幻觉率 | **7.48%** | 错误主要来自漏洞利用路径推断 |
+| Vulnerability Discovery 幻觉率 | **0%** | 在该评测集和判定口径下未产生错误漏洞发现 |
+| Physical Verification Guidance 幻觉率 | **27.65%** | 该阶段会为同一漏洞生成多条参数建议，因此风险最高 |
+| 新发现 | **9 + 2** | 9 个商业传感器级未知漏洞，以及 2 个商业无人机系统级未知漏洞，均经过物理实验验证 |
+
+`90.15%` 不是“直接触发成功率”；论文定义的 effectiveness score 对“攻击信号模态是否正确”和“参数范围是否有效”各赋 50% 权重，缺失 guidance 计 0 分。还要注意一个可复现性细节：如果严格按正文所述的 54 个完整命中、12 个仅模态命中等权计算，会得到 `(54 + 12 × 0.5) / 66 = 90.91%`，与论文报告的 90.15% 存在 0.76 个百分点差异。文档保留论文原始报告值，但面试时不要自行替论文消除这个算术口径问题。
+
+9 个传感器级结果包括：ADXL345 的新声学触发点 13.25 kHz；MPU6050 的新声学触发点 29.71 kHz，以及 667 MHz 下的两类 EM 相关漏洞；L3G4200D 在 1474.1 MHz 下的两类 EM 相关漏洞；TCS3472 在 993–1011 MHz 下的电气幅值越界漏洞；AJ-SR04M 在 627.2 MHz 下的两类 EM 相关漏洞。系统级实验还在 DJI Mini 3 的 25.95 kHz 和 DJI Mavic 3 的 27.57 kHz 声学输入下观察到明显飞行偏移。
+
+### 13.4 消融如何证明 Harness 组件有效
+
+以 Gemini-2.5-Pro 为例，Base 到完整 Harness 的变化如下：
+
+| 指标 | Base | +CoT | +RAG | 完整 Harness | 趋势 |
+|---|---:|---:|---:|---:|---|
+| Vulnerability Coverage | 3.23% | 50.0% | 51.6% | **100%** | ↑ 96.77 个百分点 |
+| Principle Accuracy | 3.03% | 42.4% | 47.0% | **100%** | ↑ 96.97 个百分点 |
+| Physical Verification Effectiveness | 0% | 34.1% | 43.2% | **90.1%** | ↑ 90.1 个百分点 |
+| Hallucination Rate | 58.3% | 37.8% | 25.2% | **11.7%** | ↓ 46.6 个百分点 |
+
+五种基础模型都表现出一致趋势：CoT 提供分步推理，RAG 用外部证据约束生成，Graph Search 把复杂推理拆成受图结构约束的局部决策。这个消融支持“CoT + RAG + Graph Search 是 load-bearing components”，也说明提升并非只依赖某一个 base model。
+
+### 13.5 工程运行结果与结论边界
+
+除论文正式实验外，仓库还保留工程 smoke test：Full run 320.975 s、12 calls、127,123 accounted tokens、3 accepted paths；RAG 将 20 篇 PDF 索引为 745 chunks，0 indexing failures。pseudo-reference smoke 的 mean unsupported-claim rate 为 0.1266、vulnerability F1 为 0.1667。
+
+两类数字回答不同问题：论文结果衡量领域 outcome 与 Harness 组件贡献；工程 smoke test 检查当前实现的 orchestration、API、RAG、trace 和真实模型调用是否跑通。后者的 synthetic/pseudo-reference 指标不能覆盖或否定前者，也不能冒充独立专家 benchmark。论文主结果采用 Gemini-2.5-Pro，当前工程 smoke 使用 DeepSeek，因此不能声称 DeepSeek 配置已经复现论文的同一组质量指标。
+
+仍需诚实说明边界：论文结果来自固定测试集和实验条件；物理验证受设备个体、位置、距离、方向和耦合条件影响；商用 datasheet 缺失走线、封装、屏蔽和滤波信息时，尤其容易产生 aliasing 相关错误。上线前还应补充 multi-trial CI、置信区间、failure slices、持续回归集与 human calibration。
 
 ---
 
@@ -770,7 +811,7 @@ Agent Evaluation 同时看 Outcome 和 Trajectory。前者是最终结论/环境
 
 ### Q23：结果能证明多 Agent 更好吗？
 
-**答：** 不能。single run、synthetic demo、pseudo-reference 只验证 plumbing。因果结论需要专家 test set、多 trials、CI 和控制变量。
+**答：** 论文消融能够证明完整 Harness 中 CoT、RAG 和 Graph Search 相对 Base 是有效组件：在五种基础模型上四项指标趋势一致；以 Gemini-2.5-Pro 为例，覆盖率从 3.23% 提升到 100%，幻觉率从 58.3% 降到 11.7%。但该消融没有把“多个专业 Agent”与“单 Agent、相同模型、相同 token/工具预算”作为唯一变量，因此不能单独证明性能提升来自 Agent 数量。严格回答应把“Harness 组件有效”和“多 Agent 拆分是否优于单 Agent”分开。
 
 ### Q24：如何降低成本和延迟？
 
@@ -809,7 +850,7 @@ Agent Evaluation 同时看 Outcome 和 Trajectory。前者是最终结论/环境
 - **不是 exactly-once/distributed**：当前单机 subprocess + file checkpoint + at-least-once。
 - **Memory ranker 是 heuristic**：尚未学习或标定。
 - **Critic 不等于物理真值**：它主要检查 path linkage/schema；真实证据仍是专家与实验。
-- **评测集不足**：synthetic/pseudo-label/single-query smoke 只能证明 plumbing。
+- **评测边界**：论文在 20 个商业传感器和 2 个商业无人机上做了物理验证，但仍是固定设备与实验条件；仓库中的 synthetic/pseudo-label smoke 只用于验证 plumbing。
 - **API 安全是 demo 水平**：缺 auth、tenant isolation、upload sandbox 和完整 injection filter。
 
 下一步优先级应是专家 benchmark 与 multi-trial regression suite，而不是继续堆 Agent 数量。
@@ -910,4 +951,4 @@ tail -f runs/<run_id>/usage.jsonl
 
 ### 推荐结尾
 
-> 这个项目目前最完整的是 Agent contract、状态恢复、artifact handoff、Memory、Critic/HITL 和 observability 组成的 Harness 工程闭环。下一步不会优先继续堆 Agent 数量，而是先补 multi-trial Agent regression suite 和分布式 durable execution，再用评测决定哪些 orchestration 组件真正 load-bearing。
+> 这个项目通过 Agent contract、状态恢复、artifact handoff、Memory、Critic/HITL 和 observability 形成了完整 Harness 工程闭环；论文实验进一步表明 CoT、RAG 和 Graph Search 是有效的 load-bearing components。下一步不会优先继续堆 Agent 数量，而是补 multi-trial Agent regression suite 和分布式 durable execution，并单独验证多 Agent 拆分相对等预算单 Agent 的增益。
