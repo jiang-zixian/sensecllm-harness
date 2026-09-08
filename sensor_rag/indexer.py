@@ -9,9 +9,8 @@ from .config import RAGConfig
 from .pdf_ingest import batched, discover_pdfs, parse_pdf, sha256_file
 from .siliconflow import SiliconFlowClient
 
-
 TABLE_NAME = "paper_chunks"
-PARSER_VERSION = 2
+PARSER_VERSION = 3
 
 
 def _lancedb():
@@ -154,7 +153,7 @@ class PaperIndexer:
                 summary["chunks"] += len(records)
                 save_manifest(self.config.manifest_path, manifest)
                 print(f"[{position}/{len(paths)}] indexed {len(records)} chunks: {relative_path}")
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 summary["failed"] += 1
                 manifest["errors"][relative_path] = f"{type(exc).__name__}: {exc}"
                 save_manifest(self.config.manifest_path, manifest)
@@ -185,6 +184,6 @@ def index_stats(config: RAGConfig) -> dict[str, Any]:
     try:
         db = _lancedb().connect(str(config.db_dir))
         stats["rows"] = db.open_table(TABLE_NAME).count_rows() if TABLE_NAME in db.table_names() else 0
-    except Exception:
+    except Exception:  # noqa: BLE001
         stats["rows"] = 0
     return stats

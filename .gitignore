@@ -14,3 +14,13 @@ runs/
 RAG_data/
 *.db
 *.sqlite3
+
+# Local learning notes and reference papers
+RAG面试.md
+SenSecLLM__NDSS2027.pdf
+
+# Generated RAG experiment artifacts
+experiments/rag_interview/index_*/
+experiments/rag_interview/*.json
+experiments/rag_interview/systematic/*.json
+experiments/rag_interview/systematic/REPORT.md

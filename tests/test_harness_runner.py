@@ -115,6 +115,7 @@ def test_run_persists_checkpoint_events_and_episode(tmp_path: Path) -> None:
     state = runner.run(source)
 
     assert state.status == RunStatus.COMPLETED
+    assert state.metadata["experiment_config"]["orchestrator"] == "langgraph"
     assert all(record.status == StageStatus.COMPLETED for record in state.stages.values())
     assert (Path(state.run_dir) / "checkpoint.json").exists()
     assert (Path(state.run_dir) / "events.jsonl").exists()

@@ -8,10 +8,10 @@ from .models import SearchHit
 from .query import build_retrieval_query
 from .siliconflow import SiliconFlowClient
 from .store import HybridStore
-
+from .web import WebHit, WebKnowledgeRetriever, web_evidence_pack
 
 SYSTEM_PROMPT = """You are the evidence-grounding stage of a sensor-security analysis pipeline.
-Use only the supplied paper excerpts. Produce a compact literature memo for a downstream analyst, not an uncited general answer.
+Use only the supplied paper excerpts and web snippets. Produce a compact evidence memo for a downstream analyst, not an uncited general answer.
 
 Requirements:
 1. Cite every technical claim with one or more source labels such as [S1].
@@ -19,7 +19,8 @@ Requirements:
 3. Separate demonstrated evidence from hypotheses or transfer to a different sensor.
 4. Never invent a paper, page, parameter, experiment, or result. State when evidence is insufficient.
 5. Prefer directly relevant sensor signal-injection, interference, side-channel, and physical-layer security evidence.
-6. Use concise headings: Direct evidence; Mechanisms and conditions; Defenses/limitations; Evidence gaps.
+6. Treat web snippets as timely background, not peer-reviewed proof, unless the source itself is a paper, standard, or official documentation.
+7. Use concise headings: Direct evidence; Mechanisms and conditions; Defenses/limitations; Evidence gaps.
 """
 
 
@@ -29,10 +30,12 @@ class SensorRAG:
         config: RAGConfig | None = None,
         client: SiliconFlowClient | None = None,
         store: HybridStore | None = None,
+        web_retriever: WebKnowledgeRetriever | None = None,
     ):
         self.config = config or RAGConfig()
         self.client = client or SiliconFlowClient(self.config)
         self.store = store or HybridStore(self.config)
+        self.web_retriever = web_retriever or WebKnowledgeRetriever(self.config)
 
     @staticmethod
     def _identifier_text(value: str) -> str:
@@ -100,6 +103,15 @@ class SensorRAG:
             )
         return "\n\n---\n\n".join(blocks)
 
+    @staticmethod
+    def combined_evidence_pack(paper_hits: list[SearchHit], web_hits: list[WebHit]) -> str:
+        return (
+            "Paper evidence:\n"
+            f"{SensorRAG.evidence_pack(paper_hits)}\n\n"
+            "Web knowledge:\n"
+            f"{web_evidence_pack(web_hits)}"
+        )
+
     def answer(
         self,
         query: str,
@@ -108,7 +120,8 @@ class SensorRAG:
         exclude_terms: list[str] | None = None,
     ) -> dict[str, Any]:
         retrieval_query, hits = self.retrieve(query, rag_input, exclude_terms=exclude_terms)
-        evidence = self.evidence_pack(hits)
+        web_hits = self.web_retriever.search(retrieval_query)
+        evidence = self.combined_evidence_pack(hits, web_hits)
         if evidence_only:
             answer = evidence
         else:
@@ -131,4 +144,5 @@ class SensorRAG:
             "retrieval_query": retrieval_query,
             "evidence": evidence,
             "sources": [hit.to_dict() for hit in hits],
+            "web_sources": [hit.to_dict() for hit in web_hits],
         }

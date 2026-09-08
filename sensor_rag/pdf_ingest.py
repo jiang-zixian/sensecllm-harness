@@ -4,14 +4,15 @@ import hashlib
 import re
 import statistics
 from collections import Counter
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 
 import pdfplumber
 from pypdf import PdfReader
 
-from .models import PaperChunk, ParsedPaper
+from sensecllm.pdf_tables import table_to_markdown
 
+from .models import PaperChunk, ParsedPaper
 
 _SPACE_RE = re.compile(r"[ \t\u00a0]+")
 _BLANK_RE = re.compile(r"\n{3,}")
@@ -121,9 +122,14 @@ def extract_page_in_reading_order(page) -> str:
             first = line_words[index]
             second = line_words[index + 1]
             gap = float(second["x0"]) - float(first["x1"])
-            if float(first["x1"]) <= middle + width * 0.08 and float(second["x0"]) >= middle - width * 0.08:
-                if gap >= min_column_gap and (best_split is None or gap > best_split[0]):
-                    best_split = (gap, index)
+            crosses_middle = (
+                float(first["x1"]) <= middle + width * 0.08
+                and float(second["x0"]) >= middle - width * 0.08
+            )
+            if crosses_middle and gap >= min_column_gap and (
+                best_split is None or gap > best_split[0]
+            ):
+                best_split = (gap, index)
         if best_split is None:
             unsplit_lines.append((top, line_words))
         else:
@@ -153,6 +159,27 @@ def extract_page_in_reading_order(page) -> str:
 
     sections = [_render_lines(sorted(lines)) for lines in (prefix, left, right) if lines]
     return "\n\n".join(section for section in sections if section)
+
+
+def extract_page_tables_markdown(page, page_number: int) -> list[str]:
+    blocks: list[str] = []
+    try:
+        tables = page.extract_tables() or []
+    except Exception:  # noqa: BLE001
+        return blocks
+    for table_number, rows in enumerate(tables, start=1):
+        markdown = table_to_markdown(rows, page_number=page_number, table_number=table_number)
+        if markdown:
+            blocks.append(markdown)
+    return blocks
+
+
+def merge_page_text_and_tables(text: str, table_blocks: list[str]) -> str:
+    parts = [text.strip()] if text.strip() else []
+    if table_blocks:
+        parts.append("## Extracted tables")
+        parts.extend(table_blocks)
+    return "\n\n".join(parts).strip()
 
 
 def _split_oversized_unit(unit: str, target: int) -> list[str]:
@@ -243,15 +270,19 @@ def parse_pdf(
             raise RuntimeError(f"Encrypted PDF cannot be read: {relative_path}") from exc
 
     raw_pages: list[str] = []
+    table_count = 0
     with pdfplumber.open(str(path), password="") as pdf:
         for page_number, page in enumerate(pdf.pages, start=1):
             try:
-                raw_pages.append(extract_page_in_reading_order(page))
-            except Exception as exc:
+                text = extract_page_in_reading_order(page)
+                table_blocks = extract_page_tables_markdown(page, page_number)
+                table_count += len(table_blocks)
+                raw_pages.append(merge_page_text_and_tables(text, table_blocks))
+            except Exception as exc:  # noqa: BLE001
                 warnings.append(f"page {page_number}: {type(exc).__name__}")
                 try:
                     raw_pages.append(reader.pages[page_number - 1].extract_text() or "")
-                except Exception:
+                except Exception:  # noqa: BLE001
                     raw_pages.append("")
 
     repeated_edges = _edge_lines(raw_pages)
@@ -281,6 +312,8 @@ def parse_pdf(
             chunk_index += 1
     if not chunks:
         warnings.append("no extractable text; OCR may be required")
+    if table_count:
+        warnings.append(f"extracted_tables={table_count}")
     return ParsedPaper(
         path=path,
         relative_path=relative_path,

@@ -1,17 +1,20 @@
-from pathlib import Path
 import json
 import re
+from pathlib import Path
+
 try:
     import fitz
-except Exception:
+except Exception:  # noqa: BLE001
     fitz = None
 
-from helpers.configs.configs import chatanywhere_auth_header, input_file, output_report
-from helpers.api.chatanywhere_client import chatanywhere_chat_completion
-from helpers.utils.file_utils import write_report_header, append_report
-from helpers.configs.prompts import prompt1_1
 from report_renderers import render_sensor_info
 from temp_paths import temp_path
+
+from helpers.api.chatanywhere_client import chatanywhere_chat_completion
+from helpers.configs.configs import chatanywhere_auth_header, input_file, output_report
+from helpers.configs.prompts import prompt1_1
+from helpers.utils.file_utils import append_report, write_report_header
+from sensecllm.pdf_tables import table_to_markdown
 
 
 def extract_json_text(text: str) -> str:
@@ -40,12 +43,12 @@ def parse_json_with_fallback(text: str):
     for c in candidates:
         try:
             return json.loads(c)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             last_err = e
         try:
             # strict=False 可容忍字符串中的控制字符
             return json.loads(c, strict=False)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             last_err = e
 
     raise RuntimeError(f"JSON 解析失败，最后错误: {last_err}")
@@ -81,13 +84,16 @@ def extract_text_tables_with_pymupdf(pdf_path: Path) -> str:
                 tf = page.find_tables()
                 tables = tf.tables if tf else []
                 if tables:
-                    parts.append(f"\n## Page {page_no} Tables")
+                    parts.append(f"\n## Page {page_no} Extracted Tables")
                 for idx, tb in enumerate(tables, start=1):
-                    parts.append(f"\n### Table {idx}")
-                    for row in tb.extract():
-                        cells = ["" if c is None else str(c).strip() for c in row]
-                        parts.append("| " + " | ".join(cells) + " |")
-            except Exception:
+                    markdown = table_to_markdown(
+                        tb.extract(),
+                        page_number=page_no,
+                        table_number=idx,
+                    )
+                    if markdown:
+                        parts.append(markdown)
+            except Exception:  # noqa: BLE001, S110
                 # Keep compatibility with older PyMuPDF versions.
                 pass
 
@@ -122,7 +128,16 @@ def run_step_1(model_for_analyze="glm-5"):
 
     messages1 = [
         {"role": "system", "content": file_content},
-        {"role": "user", "content": prompt1_1},
+        {
+            "role": "user",
+            "content": (
+                prompt1_1
+                + "\n\nIf the input contains sections named 'Extracted Tables', treat them as "
+                "structured datasheet evidence. Extract sensor parameters, units, min/typ/max "
+                "ranges, operating conditions, interfaces, and limits from those tables before "
+                "summarizing the prose."
+            ),
+        },
     ]
 
     response_data = chatanywhere_chat_completion(
@@ -139,7 +154,7 @@ def run_step_1(model_for_analyze="glm-5"):
     temp_path("step1_output_raw_llm.txt").write_text(cleaned, encoding="utf-8")
     try:
         data = parse_json_with_fallback(cleaned)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         print(f"[Step1] 首次 JSON 解析失败，尝试 LLM 修复: {e}")
         data = repair_json_with_llm(cleaned)
 

@@ -74,6 +74,7 @@ class HarnessRunner:
             metadata={
                 "experiment_config": {
                     "agent_profile": self.profile,
+                    "orchestrator": self.settings.orchestrator,
                     "rag_enabled": os.getenv("SENSECLLM_RAG_ENABLED", "true").casefold()
                     not in {"0", "false", "no", "off"},
                     "constraints_enabled": os.getenv(
@@ -231,42 +232,27 @@ class HarnessRunner:
         event_bus.emit(HarnessEvent("run.started", state.run_id))
 
         try:
-            for agent in self.agents:
-                self._check_run_budget(state, session_started, previous_elapsed)
-                if (Path(state.run_dir) / "cancel.requested").exists():
-                    raise RunCancelled("run cancellation requested")
-                record = state.stages[agent.name]
-                if record.status == StageStatus.COMPLETED:
-                    continue
-                self._ensure_dependencies(state, agent)
-                self._execute_agent(agent, state, runtime, event_bus)
-                if agent.name == "critic" and state.metadata.get("critic_decision") == "reject":
-                    state.status = RunStatus.REJECTED
-                    state.error = "rejected by critic"
-                    state.current_stage = None
-                    self._update_elapsed(state, session_started, previous_elapsed)
-                    self._update_model_usage(state)
-                    self.checkpoints.save(state)
-                    event_bus.emit(HarnessEvent("run.rejected", state.run_id))
+            if self.settings.orchestrator == "langgraph":
+                from sensecllm.harness.langgraph_executor import LangGraphAgentExecutor
+
+                LangGraphAgentExecutor(self, self.agents).run(
+                    state,
+                    runtime,
+                    event_bus,
+                    session_started=session_started,
+                    previous_elapsed=previous_elapsed,
+                )
+                if state.status in {
+                    RunStatus.REJECTED,
+                    RunStatus.WAITING_APPROVAL,
+                }:
                     return state
-                if agent.name == "critic" and state.metadata.get("requires_human_review"):
-                    state.status = RunStatus.WAITING_APPROVAL
-                    state.current_stage = None
-                    self._update_elapsed(state, session_started, previous_elapsed)
-                    self._update_model_usage(state)
-                    self.checkpoints.save(state)
-                    event_bus.emit(HarnessEvent("run.waiting_approval", state.run_id))
-                    return state
-            state.status = RunStatus.COMPLETED
-            state.current_stage = None
-            state.artifacts = self._discover_artifacts(state)
-            case_id = self.memory.remember_run(state)
-            state.metadata["episodic_case_id"] = case_id
-            self._update_elapsed(state, session_started, previous_elapsed)
-            self._update_model_usage(state)
-            self.checkpoints.save(state)
-            event_bus.emit(HarnessEvent("run.completed", state.run_id, data={"case_id": case_id}))
-            return state
+                return self._complete_run(
+                    state, event_bus, session_started, previous_elapsed
+                )
+            return self._execute_sequential(
+                state, runtime, event_bus, session_started, previous_elapsed
+            )
         except RunCancelled as exc:
             state.status = RunStatus.CANCELLED
             state.error = str(exc)
@@ -287,6 +273,74 @@ class HarnessRunner:
                 )
             )
             raise
+
+    def _execute_sequential(
+        self,
+        state: RunState,
+        runtime: Any,
+        event_bus: EventBus,
+        session_started: float,
+        previous_elapsed: float,
+    ) -> RunState:
+        for agent in self.agents:
+            self._check_run_budget(state, session_started, previous_elapsed)
+            if (Path(state.run_dir) / "cancel.requested").exists():
+                raise RunCancelled("run cancellation requested")
+            record = state.stages[agent.name]
+            if record.status == StageStatus.COMPLETED:
+                continue
+            self._ensure_dependencies(state, agent)
+            self._execute_agent(agent, state, runtime, event_bus)
+            if self._handle_post_agent_route(
+                agent, state, event_bus, session_started, previous_elapsed
+            ):
+                return state
+        return self._complete_run(state, event_bus, session_started, previous_elapsed)
+
+    def _complete_run(
+        self,
+        state: RunState,
+        event_bus: EventBus,
+        session_started: float,
+        previous_elapsed: float,
+    ) -> RunState:
+        state.status = RunStatus.COMPLETED
+        state.current_stage = None
+        state.artifacts = self._discover_artifacts(state)
+        case_id = self.memory.remember_run(state)
+        state.metadata["episodic_case_id"] = case_id
+        self._update_elapsed(state, session_started, previous_elapsed)
+        self._update_model_usage(state)
+        self.checkpoints.save(state)
+        event_bus.emit(HarnessEvent("run.completed", state.run_id, data={"case_id": case_id}))
+        return state
+
+    def _handle_post_agent_route(
+        self,
+        agent: BaseAgent,
+        state: RunState,
+        event_bus: EventBus,
+        session_started: float,
+        previous_elapsed: float,
+    ) -> str | None:
+        if agent.name == "critic" and state.metadata.get("critic_decision") == "reject":
+            state.status = RunStatus.REJECTED
+            state.error = "rejected by critic"
+            state.current_stage = None
+            self._update_elapsed(state, session_started, previous_elapsed)
+            self._update_model_usage(state)
+            self.checkpoints.save(state)
+            event_bus.emit(HarnessEvent("run.rejected", state.run_id))
+            return "rejected"
+        if agent.name == "critic" and state.metadata.get("requires_human_review"):
+            state.status = RunStatus.WAITING_APPROVAL
+            state.current_stage = None
+            self._update_elapsed(state, session_started, previous_elapsed)
+            self._update_model_usage(state)
+            self.checkpoints.save(state)
+            event_bus.emit(HarnessEvent("run.waiting_approval", state.run_id))
+            return "waiting_approval"
+        return None
 
     def _execute_agent(
         self,
@@ -473,3 +527,7 @@ class HarnessRunner:
             if path.is_file():
                 artifacts[name] = str(path)
         return artifacts
+
+    @staticmethod
+    def run_dir(state: RunState) -> Path:
+        return Path(state.run_dir)

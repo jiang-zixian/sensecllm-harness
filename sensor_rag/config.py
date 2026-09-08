@@ -64,6 +64,14 @@ class RAGConfig:
     max_chunks_per_paper: int = _env_int("RAG_MAX_CHUNKS_PER_PAPER", 2)
     request_timeout: int = _env_int("RAG_REQUEST_TIMEOUT", 120)
     max_retries: int = _env_int("RAG_MAX_RETRIES", 4)
+    web_rag_enabled: bool = os.getenv("SENSECLLM_WEB_RAG_ENABLED", "true").casefold() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    web_top_k: int = _env_int("RAG_WEB_TOP_K", 5)
+    web_request_timeout: int = _env_int("RAG_WEB_REQUEST_TIMEOUT", 15)
     host: str = os.getenv("RAG_HOST", "127.0.0.1")
     port: int = _env_int("RAG_PORT", 8001)
 

@@ -38,7 +38,10 @@ class HarnessSettings:
         "on",
     }
     critic_model: str = os.getenv("SENSECLLM_CRITIC_MODEL", "deepseek-v3.2")
+    orchestrator: str = os.getenv("SENSECLLM_ORCHESTRATOR", "langgraph")
 
     def ensure_directories(self) -> None:
+        if self.orchestrator not in {"langgraph", "sequential"}:
+            raise ValueError("SENSECLLM_ORCHESTRATOR must be langgraph or sequential")
         self.runs_dir.expanduser().resolve().mkdir(parents=True, exist_ok=True)
         self.memory_db.expanduser().resolve().parent.mkdir(parents=True, exist_ok=True)

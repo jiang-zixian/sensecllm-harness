@@ -41,7 +41,7 @@ class RAGApplication:
         elif isinstance(raw_exclude_terms, list):
             exclude_terms = [str(term).strip() for term in raw_exclude_terms if str(term).strip()]
         else:
-            raise ValueError("inputs.exclude_terms must be a list or comma-separated string")
+            raise TypeError("inputs.exclude_terms must be a list or comma-separated string")
         # This is a service-wide safety boundary, not merely a Step-4 caller
         # convention: every endpoint excludes all held-out benchmark models.
         exclude_terms = list(dict.fromkeys([*benchmark_sensor_models(), *exclude_terms]))
@@ -74,7 +74,7 @@ def make_handler(application: RAGApplication):
                 raise ValueError("invalid request body length")
             return json.loads(self.rfile.read(length).decode("utf-8"))
 
-        def do_GET(self) -> None:  # noqa: N802
+        def do_GET(self) -> None:
             if self.path.rstrip("/") == "/health":
                 stats = index_stats(application.config)
                 if not stats.get("rows", 0):
@@ -87,7 +87,7 @@ def make_handler(application: RAGApplication):
                 return
             self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
 
-        def do_POST(self) -> None:  # noqa: N802
+        def do_POST(self) -> None:
             if self.path.rstrip("/") not in {"/v1/chat-messages", "/v1/retrieve"}:
                 self._json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
                 return
@@ -102,7 +102,7 @@ def make_handler(application: RAGApplication):
                 self._send_dify_response(body, result)
             except (ValueError, json.JSONDecodeError) as exc:
                 self._json(HTTPStatus.BAD_REQUEST, {"error": "invalid_param", "message": str(exc)})
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001
                 self._json(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     {"error": "rag_error", "message": f"{type(exc).__name__}: {exc}"},
@@ -112,7 +112,11 @@ def make_handler(application: RAGApplication):
             conversation_id = str(body.get("conversation_id") or uuid.uuid4())
             message_id = str(uuid.uuid4())
             answer = str(result["answer"])
-            metadata = {"sources": result.get("sources", []), "retrieval_query": result.get("retrieval_query")}
+            metadata = {
+                "sources": result.get("sources", []),
+                "web_sources": result.get("web_sources", []),
+                "retrieval_query": result.get("retrieval_query"),
+            }
             if body.get("response_mode", "streaming") == "blocking":
                 self._json(
                     HTTPStatus.OK,
@@ -141,7 +145,7 @@ def make_handler(application: RAGApplication):
                 },
             ]
             encoded = b"".join(
-                f"data: {json.dumps(event, ensure_ascii=False)}\n\n".encode("utf-8") for event in events
+                f"data: {json.dumps(event, ensure_ascii=False)}\n\n".encode() for event in events
             )
             self.send_response(HTTPStatus.OK)
             self.send_header("Content-Type", "text/event-stream; charset=utf-8")

@@ -1,3 +1,3 @@
-from .service import ReportChatService
+from .service import PostAnalysisChatService, ReportChatService
 
-__all__ = ["ReportChatService"]
+__all__ = ["PostAnalysisChatService", "ReportChatService"]

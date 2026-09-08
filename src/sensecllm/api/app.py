@@ -11,7 +11,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse, HTMLResponse, PlainTextResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
-from sensecllm.chat import ReportChatService
+from sensecllm.chat import PostAnalysisChatService
 from sensecllm.config import HarnessSettings
 from sensecllm.harness.checkpoint import CheckpointStore
 from sensecllm.harness.runner import HarnessRunner
@@ -306,4 +306,4 @@ def list_messages(run_id: str) -> list[dict]:
 @app.post("/v1/runs/{run_id}/chat")
 def report_chat(run_id: str, request: ChatRequest) -> dict:
     state = CheckpointStore().load(_checkpoint_path(run_id))
-    return ReportChatService(memory).ask(state, request.question)
+    return PostAnalysisChatService(memory).ask(state, request.question)
